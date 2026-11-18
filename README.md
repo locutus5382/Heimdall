@@ -1,2 +1,37 @@
-# Heimdall
-We analyze how the handheld behaves, not how many frames the game renders. Read-only telemetry collector, session Start/Stop, a foreground recorder process, CPU/GPU temperatures and loads, frequency readings, RAM measurements, a Quick Settings tile, and CSV export. No network access. No root. absolutely closed app with no outside communication.
+# HEIMDALL
+
+**We analyze how the handheld behaves, not how many frames the game renders.**
+
+A new Android-native, offline-only handheld telemetry and analytics app.
+One recording engine, one foreground service, one local database and a coherent
+cobalt/marigold UI. No root or Internet permission.
+
+## Current status: F0 foundation (not a public release)
+
+The first branch implements:
+- A pure Kotlin recording coordinator with STOP-before-finalize semantics
+- An independent Android app ID: `com.locutus5382.heimdall`
+- A native foreground recorder service and SQLite v1 sessions/samples
+- Read-only battery, memory, CPU-load, CPU-clock and optional GPU-clock probes
+- A first Compose dashboard with live persisted sample counts
+- JVM lifecycle tests and a GitHub Actions build
+
+Not implemented yet: automatic crash recovery, polished HUD variants, Quick
+Settings, device-specific validation, A/B analytics, DUKO reports, exports and
+Play Store readiness. None of the old CoreMetrics code is imported.
+
+## Build
+
+Prerequisites: JDK 17, Android SDK 36 and Gradle 8.11.1.
+
+```bash
+gradle :engine:test :app:assembleDebug
+```
+
+Use the GitHub Actions debug APK from a **successful** CI run. Its app ID is
+separate from `com.locutus5382.coremetrics`. Do not install it as a replacement
+for CoreMetrics or assume that it can recover old CoreMetrics recordings.
+
+Architecture, safety decisions and staged feature plan: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+Copyright © 2026 Aleksandar Dukovski. All rights reserved.
