@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Heimdall</string>
+    <string name="recorder_channel">Heimdall recording</string>
+    <string name="recorder_channel_description">User-controlled local recording of handheld telemetry</string>
+</resources>
