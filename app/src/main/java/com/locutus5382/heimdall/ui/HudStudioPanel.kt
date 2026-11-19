@@ -13,6 +13,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import android.content.SharedPreferences
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,6 +41,21 @@ fun HudStudioPanel() {
     val context = LocalContext.current.applicationContext
     val store = remember(context) { HudProfileStore(context) }
     var config by remember { mutableStateOf(store.read()) }
+    // Cycles initiated in the game HUD must also update Studio when the
+    // dashboard returns. This listener never starts a service or a sampler.
+    DisposableEffect(store) {
+        val ui = Handler(Looper.getMainLooper())
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key?.startsWith("hud_") == true) {
+                ui.post { config = store.read() }
+            }
+        }
+        store.prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose {
+            store.prefs.unregisterOnSharedPreferenceChangeListener(listener)
+            ui.removeCallbacksAndMessages(null)
+        }
+    }
     fun save(new: HudProfile) {
         config = new.sanitized()
         store.save(config)
@@ -97,7 +116,7 @@ fun HudStudioPanel() {
         Slider(
             value = config.opacity, onValueChange = {
                 save(config.copy(opacity = it))
-            }, valueRange = .45f.. .90f
+            }, valueRange = 0.45f..0.90f
         )
         Text("VISIBLE METRICS", color = muted)
         HudMetric.entries.chunked(2).forEach { row ->
