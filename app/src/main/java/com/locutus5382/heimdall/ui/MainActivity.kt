@@ -254,6 +254,9 @@ private fun HeimdallDashboard(
                     color = Marigold
                 )
             }
+            DukoTagEditor(
+                sessionId = (state as? RecorderStatus.Recording)?.sessionId
+            )
             HudStudioPanel()
             Text("Quick Settings: add Heimdall Record in Android's tile editor.",
                 color = Muted, fontSize = 12.sp)

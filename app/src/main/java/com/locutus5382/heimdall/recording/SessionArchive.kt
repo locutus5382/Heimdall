@@ -120,6 +120,10 @@ class SessionArchive(context: Context) {
             }
     }
 
+    /** D0–D2: pure calculations over recorded monotonic observations. */
+    suspend fun dukoFoundation(sessionId: Long): DukoFoundationReport? =
+        DukoSessionAnalyzer(app).analyze(sessionId)
+
     /** A user-selected SAF destination; never uploads or overwrites source rows. */
     suspend fun exportCsv(sessionId: Long, destination: OutputStream): Long =
         withContext(Dispatchers.IO) {

@@ -13,8 +13,8 @@ android {
         applicationId = "com.locutus5382.heimdall"
         minSdk = 31
         targetSdk = 36
-        versionCode = 7
-        versionName = "0.6.0-h1-h4-qa"
+        versionCode = 8
+        versionName = "0.7.0-duko-foundation-alpha"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Only the minified instrumentation APK references JDK annotation APIs.
         testProguardFiles("test-proguard-rules.pro")
@@ -66,6 +66,13 @@ dependencies {
     // R8 also minifies the instrumented leanDebug test APK. These annotations
     // are referenced by AndroidX Test's runtime checks but are otherwise absent.
     androidTestImplementation("com.google.errorprone:error_prone_annotations:2.28.0")
+    // AndroidJUnitRunner invokes androidx.tracing.Trace before any test runs.
+    // Match the runtime-constrained AndroidX Activity 1.9.1 version; test R8\n    // keeps the instrumentation implementation via test-proguard-rules.pro.
+    androidTestImplementation("androidx.tracing:tracing:1.0.0")
+    // The optimized app strips unused Kotlin runtime classes, while the
+    // separately minified AndroidX instrumentation runner still needs LazyKt.
+    // Keep the test APK self-contained rather than disabling app shrinking.
+    androidTestImplementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.25")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }
