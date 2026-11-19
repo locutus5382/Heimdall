@@ -16,3 +16,8 @@
 # unshipped JDK types in the *instrumentation* shrinker.
 -dontwarn javax.lang.model.element.Modifier
 -dontwarn javax.lang.model.element.ElementKind
+
+# AndroidJUnit4 / Compose test support dynamically loads Guava's future
+# interface. Keep it in the separately minified test APK if present there.
+# The leanDebug target also has a QA-only matching keep rule.
+-keep class com.google.common.util.concurrent.ListenableFuture { *; }

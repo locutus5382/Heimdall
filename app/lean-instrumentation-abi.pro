@@ -16,3 +16,14 @@
 -keep class kotlin.** { *; }
 -keep class kotlinx.coroutines.** { *; }
 -keep class androidx.compose.** { *; }
+
+# Separately compiled Android instrumentation calls Heimdall classes and
+# constructors by their original binary names. In optimized QA only, retain
+# that test-facing ABI: this is NOT included in release R8 rules.
+# Without it R8 renames LocalRecordingStore and changes the two-argument
+# DukoSessionContextStore constructor, although the normal app still works.
+-keep class com.locutus5382.heimdall.** { *; }
+
+# AndroidX test infrastructure references this interface from an otherwise
+# unreachable runtime path; test instrumentation shares target class loading.
+-keep class com.google.common.util.concurrent.ListenableFuture { *; }
