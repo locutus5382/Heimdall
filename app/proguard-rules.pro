@@ -9,3 +9,10 @@
 # otherwise removes it as unused in the app itself. Keep only this tiny API
 # family so the optimized APK can be exercised by the real test runner.
 -keep class androidx.tracing.** { *; }
+
+# The separate R8-minified AndroidX Test runner calls kotlin.LazyKt through
+# the application's class loader. R8 can remove that facade because our app
+# does not reference it directly. Keep ONLY the required facade and lazy
+# implementation, not the complete Kotlin stdlib (which would inflate APK).
+-keep class kotlin.LazyKt { *; }
+-keep class kotlin.LazyKt__* { *; }
