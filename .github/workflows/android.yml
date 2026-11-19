@@ -50,7 +50,7 @@ jobs:
       - name: Upload standalone debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: HEIMDALL-v0.3-stability-debug
+          name: HEIMDALL-v0.3.1-odin-debug
           if-no-files-found: error
           path: app/build/outputs/apk/debug/app-debug.apk
       - name: Preserve engine test results on failure

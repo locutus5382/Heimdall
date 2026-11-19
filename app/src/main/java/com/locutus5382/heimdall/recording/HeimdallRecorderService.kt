@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.IBinder
 import com.locutus5382.heimdall.R
 import com.locutus5382.heimdall.ui.HeimdallTileService
+import com.locutus5382.heimdall.ui.MainActivity
 import com.locutus5382.heimdall.engine.NativeRecorderEngine
 import com.locutus5382.heimdall.engine.RecorderStatus
 import kotlinx.coroutines.CoroutineScope
@@ -17,8 +18,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * One foreground Service, one native recorder engine, one database writer.
@@ -154,9 +153,16 @@ class HeimdallRecorderService : Service() {
         val stop = Intent(this, HeimdallRecorderService::class.java).setAction(STOP)
         val stopIntent = PendingIntent.getService(this, 2, stop,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val dashboard = PendingIntent.getActivity(
+            this, 1,
+            Intent(this, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("HEIMDALL · Device telemetry")
             .setContentText(message)
+            .setContentIntent(dashboard)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -166,14 +172,26 @@ class HeimdallRecorderService : Service() {
     }
 
     override fun onDestroy() {
-        // If the OS destroys the Service while the process survives, do not
-        // leave a writer running without its foreground owner. A killed process
-        // naturally preserves the on-disk unfinished row for recovery review.
-        runBlocking(Dispatchers.IO) {
-            withTimeoutOrNull(3_000L) { engine.shutdownForServiceDeath() }
-        }
+        // Android calls onDestroy on its main thread. NEVER runBlocking here:
+        // the sampler has a Main dispatcher and cancelAndJoin could wait for
+        // that same blocked thread (creating a 3s timeout / stuck teardown).
+        //
+        // Cancelling the owning scope immediately prevents further sampling,
+        // while the SQLite unfinished row remains the durable recovery owner.
+        val state = engine.status.value
         hud.dismiss()
         scope.cancel()
+        val interrupted = when (state) {
+            is RecorderStatus.Recording -> state.sessionId
+            is RecorderStatus.Stopping -> state.sessionId
+            is RecorderStatus.Saving -> state.sessionId
+            else -> null
+        }
+        if (interrupted != null) {
+            RecorderStatusHub.publish(
+                RecorderStatus.NeedsAttention(interrupted, "SERVICE_INTERRUPTED")
+            )
+        }
         super.onDestroy()
     }
 

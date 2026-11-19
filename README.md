@@ -7,7 +7,7 @@ recorder service, one sampler, one local SQLite database; no root, Internet
 permission, login, cloud account or FPS measurement claims. Fully independent
 of the older CoreMetrics package.
 
-## Current development branch: v0.3 stability candidate
+## Current development branch: v0.3.1 Odin test candidate
 
 The prototype now includes:
 - Dashboard START / STOP & SAVE with real persisted sample counts
@@ -19,12 +19,18 @@ The prototype now includes:
   animated REC indicator, drag handle and edge snap
 - Completed session history, on-demand median/P95/peak summaries with
   sample-coverage reporting and user-selected CSV export
+- A user-initiated on-device capability report with optional local TXT export
+  to identify readable CPU policies, GPU sources, PSI and thermal status
 - Transactional SQLite **schema v2**: START, sample insert and durable STOP
   live in one database. v1 recordings migrate without being deleted
 - Safe original-session handling after interruption: committed STOP is
   finalized on inspection; otherwise the original is held for manual STOP
 - JVM tests, Android 15 emulator recording tests, fault-injection tests,
-  and a GitHub Actions debug APK build
+  device-diagnostic UI tests and a GitHub Actions debug APK build
+- Nonblocking Android Service teardown; when a Service is destroyed, its
+  coroutine sampler is cancelled immediately without blocking the main thread
+- Independent best-effort battery and memory probes, so a restricted ROM
+  cannot abort an otherwise working recording
 
 **Testing is not a release.** Full game-overlay/controller behavior, sustained
 performance, vendor ROM restrictions and real crash paths still require an
@@ -40,13 +46,16 @@ gradle :engine:test :app:assembleDebug --no-daemon
 gradle :app:connectedDebugAndroidTest --no-daemon
 ```
 
-For an installable APK, use `HEIMDALL-v0.3-stability-debug` from a
+For an installable APK, use `HEIMDALL-v0.3.1-odin-debug` from a
 **successful** GitHub Actions run on the matching commit. It uses
 `com.locutus5382.heimdall` and does not overwrite CoreMetrics. Upgrading
 v0.2 to v0.3 should preserve Heimdall recordings via the schema migration.
 
 Before accepting this candidate on Odin, use
-[docs/V03_ACCEPTANCE.md](docs/V03_ACCEPTANCE.md). Architecture and long-term
+[docs/V031_ODIN_VALIDATION.md](docs/V031_ODIN_VALIDATION.md).
+The diagnostics TXT contains only the device model, Android version,
+permission/capability flags and database counts; it does not include a
+hardware serial, file inventory or personal account data. Architecture and long-term
 roadmap: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ### Still missing from the intended full product

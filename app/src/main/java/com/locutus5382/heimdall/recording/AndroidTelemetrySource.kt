@@ -53,8 +53,11 @@ internal class AndroidTelemetrySource(context: Context) : DeviceSampleSource {
     }
 
     override suspend fun read(): DeviceSample = withContext(Dispatchers.IO) {
-        val battery = app.registerReceiver(
-            null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        // Probe each sensor independently. A vendor ROM denying a battery
+        // broadcast or memory API must not terminate the entire recording.
+        val battery = runCatching {
+            app.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        }.getOrNull()
         val level = battery?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
         val scale = battery?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
         val percent = if (level >= 0 && scale > 0)
@@ -62,17 +65,21 @@ internal class AndroidTelemetrySource(context: Context) : DeviceSampleSource {
         val rawTemp = battery?.getIntExtra(
             BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE) ?: Int.MIN_VALUE
         val batteryTemp = if (rawTemp != Int.MIN_VALUE) rawTemp / 10.0 else null
-        val memory = ActivityManager.MemoryInfo()
-        (app.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager)
-            .getMemoryInfo(memory)
+
+        val availableMemory = runCatching {
+            val info = ActivityManager.MemoryInfo()
+            (app.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager)
+                .getMemoryInfo(info)
+            info.availMem / (1024L * 1024L)
+        }.getOrNull()
+
         DeviceSample(
             observedAtMs = System.currentTimeMillis(),
             cpuLoadPercent = cpuPercentOrNull(),
             batteryLevelPercent = percent,
             batteryTemperatureC = batteryTemp,
-            availableMemoryMiB = memory.availMem / (1024L * 1024L),
-            cpuClockMHz = policyPaths.mapNotNull(::readKhzAsMhzOrNull)
-                .maxOrNull(),
+            availableMemoryMiB = availableMemory,
+            cpuClockMHz = policyPaths.mapNotNull(::readKhzAsMhzOrNull).maxOrNull(),
             gpuClockMHz = gpuPaths.firstNotNullOfOrNull(::readHzAsMhzOrNull),
         )
     }
