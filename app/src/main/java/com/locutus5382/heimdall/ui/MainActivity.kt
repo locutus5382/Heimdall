@@ -52,6 +52,7 @@ import com.locutus5382.heimdall.engine.RecorderStatus
 import com.locutus5382.heimdall.recording.HeimdallRecorderService
 import com.locutus5382.heimdall.recording.RecorderStatusHub
 import java.util.Locale
+import kotlinx.coroutines.flow.MutableStateFlow
 
 private val Night = Color(0xFF090F1E)
 private val SurfaceSlate = Color(0xFF121E32)
@@ -62,6 +63,13 @@ private val Ice = Color(0xFFEAF1FF)
 private val Muted = Color(0xFF9EADC2)
 
 class MainActivity : ComponentActivity() {
+    private val overlayGranted = MutableStateFlow(false)
+
+    override fun onResume() {
+        super.onResume()
+        overlayGranted.value = Settings.canDrawOverlays(this)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Inspect the original durable session as soon as the dashboard opens.
@@ -83,16 +91,19 @@ class MainActivity : ComponentActivity() {
             var hudEnabled by remember {
                 mutableStateOf(hudPrefs.getBoolean("hud_enabled", false))
             }
+            val overlayPermission by overlayGranted.collectAsState()
             val toggleHud = {
-                if (!Settings.canDrawOverlays(this@MainActivity)) {
+                val next = !hudEnabled
+                // User opted in. If Android still needs overlay permission,
+                // the preference is saved and the dashboard shows it as
+                // pending instead of incorrectly claiming an active window.
+                hudPrefs.edit().putBoolean("hud_enabled", next).apply()
+                hudEnabled = next
+                if (next && !Settings.canDrawOverlays(this@MainActivity)) {
                     startActivity(Intent(
                         Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                         Uri.parse("package:$packageName")
                     ))
-                } else {
-                    val next = !hudEnabled
-                    hudPrefs.edit().putBoolean("hud_enabled", next).apply()
-                    hudEnabled = next
                 }
             }
             val notificationPermission = rememberLauncherForActivityResult(
@@ -126,6 +137,7 @@ class MainActivity : ComponentActivity() {
                     state = state, issue = permissionProblem,
                     onStart = start, onStop = stop,
                     hudEnabled = hudEnabled,
+                    hudPermissionGranted = overlayPermission,
                     onToggleHud = toggleHud)
             }
         }
@@ -148,6 +160,7 @@ private fun HeimdallDashboard(
     onStart: () -> Unit,
     onStop: () -> Unit,
     hudEnabled: Boolean,
+    hudPermissionGranted: Boolean,
     onToggleHud: () -> Unit,
 ) {
     val recording = state as? RecorderStatus.Recording
@@ -226,8 +239,12 @@ private fun HeimdallDashboard(
                 shape = RoundedCornerShape(14.dp)
             ) {
                 Text(
-                    if (hudEnabled) "IN-GAME HUD: ON · TAP TO DISABLE"
-                    else "ENABLE IN-GAME HUD / GRANT OVERLAY PERMISSION",
+                    when {
+                        hudEnabled && hudPermissionGranted ->
+                            "IN-GAME HUD: ON · TAP TO DISABLE"
+                        hudEnabled -> "HUD ENABLE PENDING ANDROID PERMISSION · TAP TO CANCEL"
+                        else -> "ENABLE IN-GAME HUD"
+                    },
                     color = Marigold
                 )
             }
