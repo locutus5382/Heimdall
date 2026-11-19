@@ -59,19 +59,43 @@ internal class DukoSessionContextStore(
     }
 
     /**
-     * Called from LocalRecordingStore.begin's existing SQLite transaction.
-     * Tags and capability profile are attached atomically to the session ID.
-     * Failure aborts START rather than creating a context-less partial row.
+     * Probe the hardware BEFORE acquiring SQLite's writer lock. Some vendor
+     * cpufreq/thermal sysfs reads can block, especially when SELinux denies
+     * access. Snapshot setup must not stall concurrent session exports.
      */
-    fun attachNewSession(database: SQLiteDatabase, sessionId: Long) {
+    data class PreparedSessionMetadata(
+        val context: DukoSessionContext,
+        val contractVersion: Int,
+        val capturedAtMs: Long,
+        val profileJson: String,
+    )
+
+    fun prepareNewSession(): PreparedSessionMetadata {
         val draft = readDraft()
-        writeContext(database, sessionId, draft)
         val snapshot = DukoDeviceCapture.probe(app)
+        return PreparedSessionMetadata(
+            context = draft, contractVersion = snapshot.contractVersion,
+            capturedAtMs = snapshot.capturedAtMs,
+            profileJson = DukoDeviceCapture.encode(snapshot),
+        )
+    }
+
+    /**
+     * Only the two cheap inserts run within the existing START transaction.
+     * If either fails, START rolls back its session row and retains all prior
+     * recordings. Nothing in this method probes the hardware.
+     */
+    fun attachNewSession(
+        database: SQLiteDatabase,
+        sessionId: Long,
+        prepared: PreparedSessionMetadata,
+    ) {
+        writeContext(database, sessionId, prepared.context)
         val profile = ContentValues().apply {
             put("session_id", sessionId)
-            put("contract_version", snapshot.contractVersion)
-            put("captured_at_ms", snapshot.capturedAtMs)
-            put("profile_json", DukoDeviceCapture.encode(snapshot))
+            put("contract_version", prepared.contractVersion)
+            put("captured_at_ms", prepared.capturedAtMs)
+            put("profile_json", prepared.profileJson)
         }
         database.insertOrThrow("duko_device_profiles", null, profile)
     }
