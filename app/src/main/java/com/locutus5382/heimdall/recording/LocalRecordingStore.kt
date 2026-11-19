@@ -78,6 +78,16 @@ internal class LocalRecordingStore(
         }
     }
 
+    override suspend fun sessionStartElapsedMs(sessionId: Long): Long? =
+        withContext(Dispatchers.IO) {
+            db.readableDatabase.rawQuery(
+                "SELECT started_elapsed_ms FROM sessions WHERE id=? LIMIT 1",
+                arrayOf(sessionId.toString())
+            ).use { c ->
+                if (c.moveToFirst() && !c.isNull(0)) c.getLong(0) else null
+            }
+        }
+
     override suspend fun append(sessionId: Long, sample: DeviceSample): Boolean =
         appendOutcome(sessionId, sample) == AppendOutcome.WRITTEN
 
