@@ -89,6 +89,10 @@ class NativeRecorderEngine(
             return@withLock false
         }
         _status.value = RecorderStatus.Recording(id, 0L)
+        // One writer owns this session, so a successful append increments its
+        // durable sample count without an O(N) COUNT(*) scan every 2 seconds.
+        // STOP still queries SQLite for its authoritative final count.
+        var successfulWrites = 0L
         samplerJob = scope.launch {
             while (isActive) {
                 try {
@@ -96,12 +100,12 @@ class NativeRecorderEngine(
                     if (!persistence.append(id, sample)) {
                         throw IllegalStateException("SAMPLE_WRITE_FAILED")
                     }
-                    val saved = persistence.sampleCount(id)
+                    successfulWrites++
                     val current = _status.value
                     if (current is RecorderStatus.Recording &&
                         current.sessionId == id) {
                         _status.value = current.copy(
-                            persistedSamples = saved, last = sample)
+                            persistedSamples = successfulWrites, last = sample)
                     }
                 } catch (cancel: CancellationException) {
                     throw cancel
