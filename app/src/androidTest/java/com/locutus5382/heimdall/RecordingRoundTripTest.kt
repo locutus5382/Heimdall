@@ -120,7 +120,7 @@ class RecordingRoundTripTest {
             }
             db.rawQuery("PRAGMA user_version", null).use { cursor ->
                 assertTrue(cursor.moveToFirst())
-                assertEquals(2, cursor.getInt(0))
+                assertEquals(3, cursor.getInt(0))
             }
             db.rawQuery(
                 "SELECT stop_requested_at_ms FROM sessions WHERE id=?",
@@ -171,16 +171,13 @@ class RecordingRoundTripTest {
         app.stopService(Intent(app, HeimdallRecorderService::class.java))
         Thread.sleep(200)
         compose.activityRule.scenario.recreate()
-        await(30_000L) {
-            (RecorderStatusHub.state.value as? RecorderStatus.NeedsAttention)
-                ?.takeIf { it.sessionId == strandedId }
-        }
-        compose.onNodeWithText("START").assertIsNotEnabled()
-        compose.onNodeWithText("RETRY STOP").performClick()
-        await(30_000L) {
+        val interrupted = await(30_000L) {
             (RecorderStatusHub.state.value as? RecorderStatus.Finished)
-                ?.takeIf { it.sessionId == strandedId }
+                ?.takeIf { it.sessionId == strandedId &&
+                    it.reason == "INTERRUPTED" }
         }
+        assertEquals(0L, interrupted.samples)
+        compose.onNodeWithText("START").assertExists()
 
         // Emulate death after durable STOP but before finalization:
         // inspection must finish the SAME row automatically.
