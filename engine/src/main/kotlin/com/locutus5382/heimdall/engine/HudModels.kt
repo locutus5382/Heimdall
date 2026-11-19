@@ -2,11 +2,22 @@ package com.locutus5382.heimdall.engine
 
 /** Android-independent HUD presentation state; recording remains authoritative. */
 enum class HudLayout(val token: String, val title: String) {
-    PILL("pill", "Compact Pill"),
-    CARD("card", "Glass Card"),
-    RIBBON("ribbon", "Telemetry Ribbon");
+    PILL("pill", "Micro-Gauge Strip"),
+    CARD("card", "Compact Glass Card"),
+    RIBBON("ribbon", "Horizontal Ribbon"),
+    SPINE("spine", "Vertical Bezel Spine");
 
     fun next(): HudLayout = entries[(ordinal + 1) % entries.size]
+
+    /** One shared layout policy for the renderer and HUD Studio. */
+    fun metricLimit() = when (this) {
+        PILL -> 4
+        CARD -> 4
+        RIBBON -> 5
+        SPINE -> 3
+    }
+
+    fun supportedMetrics(): Set<HudMetric> = HudMetric.entries.toSet()
 
     companion object {
         fun from(token: String?): HudLayout =
@@ -33,15 +44,25 @@ enum class HudMetric(val token: String, val title: String) {
     }
 }
 
+enum class HudDock(val token: String) {
+    AUTO("auto"), TOP("top"), BOTTOM("bottom"), LEFT("left"), RIGHT("right");
+    companion object {
+        fun from(raw: String?): HudDock = entries.firstOrNull {
+            it.token.equals(raw, ignoreCase = true)
+        } ?: AUTO
+    }
+}
+
 data class HudProfile(
     val layout: HudLayout = HudLayout.PILL,
     val scale: Float = 1f,
     val opacity: Float = 0.76f,
     val locked: Boolean = false,
     val metrics: Set<HudMetric> = HudMetric.defaults,
+    val dock: HudDock = HudDock.AUTO,
 ) {
     fun sanitized(): HudProfile = copy(
-        scale = scale.takeIf { it.isFinite() }?.coerceIn(0.75f, 1.30f) ?: 1f,
+        scale = scale.takeIf { it.isFinite() }?.coerceIn(0.85f, 1.25f) ?: 1f,
         opacity = opacity.takeIf { it.isFinite() }?.coerceIn(0.45f, 0.90f) ?: 0.76f,
         // Always leave a meaningful minimum presentation; no fake readings.
         metrics = metrics.ifEmpty { HudMetric.defaults }
