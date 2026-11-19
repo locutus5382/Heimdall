@@ -241,7 +241,8 @@ internal class HeimdallCanvasView(
         if (width < 1f) return
         for (i in 0 until bars) {
             val color = if (i < (fraction * bars).roundToInt())
-                if (s.readout.caution) caution else signal
+                if (s.readout.alert) coral
+                else if (s.readout.caution) caution else signal
             else Color.rgb(48, 68, 95)
             tempRect.set(left + i * (width + 3f), s.bounds.bottom - 5f,
                 left + i * (width + 3f) + width, s.bounds.bottom - 2f)
@@ -264,7 +265,8 @@ internal class HeimdallCanvasView(
                 if (profile.layout == HudLayout.CARD) 17f
                 else if (profile.layout == HudLayout.SPINE) 14f
                 else 14.5f,
-                if (slot.readout.caution) caution else ice, true)
+                if (slot.readout.alert) coral
+                else if (slot.readout.caution) caution else ice, true)
             if (profile.layout == HudLayout.PILL ||
                 profile.layout == HudLayout.RIBBON) segmentedGauge(canvas, slot)
         }
