@@ -62,9 +62,19 @@ private val Muted = Color(0xFF9EADC2)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Inspect the original durable session as soon as the dashboard opens.
+        // A normal Service start is valid while this Activity is visible; this
+        // does not start recording or require a foreground notification.
+        val restoreProblem: String? = try {
+            startService(Intent(this, HeimdallRecorderService::class.java)
+                .setAction(HeimdallRecorderService.INSPECT))
+            null
+        } catch (e: Exception) {
+            "Could not inspect recorder status: " + e.javaClass.simpleName
+        }
         setContent {
             val state by RecorderStatusHub.state.collectAsState()
-            var permissionProblem by remember { mutableStateOf<String?>(null) }
+            var permissionProblem by remember { mutableStateOf(restoreProblem) }
             val notificationPermission = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestPermission()) { granted ->
                 if (granted) requestService(HeimdallRecorderService.START) {

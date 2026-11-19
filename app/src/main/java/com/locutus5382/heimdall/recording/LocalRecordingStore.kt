@@ -64,6 +64,19 @@ internal class LocalRecordingStore(context: Context) : RecordingPersistence {
         row ?: if (hasLease) lease.getLong("id", -1L) else null
     }
 
+    /** Only a previously committed STOP is recoverable without user input. */
+    override suspend fun recoverPendingStop(): Long? = withContext(Dispatchers.IO) {
+        if (!lease.getBoolean("active", false) ||
+            !lease.getBoolean("stop_requested", false)) return@withContext null
+        val id = lease.getLong("id", -1L)
+        if (id <= 0L) return@withContext null
+        // If the database and durable lease disagree, preserve evidence rather
+        // than announce a recovered session while a different row is open.
+        if (unresolvedSessionId() != id) return@withContext null
+        // finish() is retry-safe: COMPLETED timestamps are never rewritten.
+        if (finish(id)) id else null
+    }
+
     override suspend fun begin(): Long = withContext(Dispatchers.IO) {
         check(unresolvedSessionId() == null) { "UNFINISHED_SESSION" }
         val id = db.writableDatabase.insertOrThrow("sessions", null,

@@ -32,17 +32,33 @@ class NativeRecorderEngine(
     val status: StateFlow<RecorderStatus> = _status
     private var samplerJob: Job? = null
 
+    /**
+     * Read-only launch inspection, except for a STOP that was durable BEFORE
+     * the previous process/service died. Never replaces an unfinished session.
+     */
     suspend fun inspectExisting(): RecorderStatus = mutex.withLock {
-        if (_status.value is RecorderStatus.Idle) {
-            runCatching { persistence.unresolvedSessionId() }
-                .onSuccess { id ->
-                    if (id != null) _status.value =
-                        RecorderStatus.NeedsAttention(id, "UNFINISHED_SESSION")
-                }
-                .onFailure {
-                    _status.value = RecorderStatus.NeedsAttention(
-                        null, "STORAGE_UNAVAILABLE")
-                }
+        if (_status.value !is RecorderStatus.Idle) return@withLock _status.value
+
+        val existing = try {
+            persistence.unresolvedSessionId()
+        } catch (_: Exception) {
+            _status.value = RecorderStatus.NeedsAttention(null, "STORAGE_UNAVAILABLE")
+            return@withLock _status.value
+        }
+        if (existing == null) return@withLock _status.value
+
+        val recovered = try {
+            persistence.recoverPendingStop()
+        } catch (_: Exception) {
+            null // Original session and its lease remain; STOP may be retried.
+        }
+        if (recovered != null) {
+            val count = try {
+                persistence.sampleCount(recovered)
+            } catch (_: Exception) { 0L }
+            _status.value = RecorderStatus.Finished(recovered, count)
+        } else {
+            _status.value = RecorderStatus.NeedsAttention(existing, "UNFINISHED_SESSION")
         }
         _status.value
     }

@@ -18,7 +18,13 @@ The first branch implements:
 - An F0 acceptance branch adds a Compose dashboard-to-SQLite instrumentation
   test on a disposable Android emulator; test execution is not yet verified.
 
-Not implemented yet: automatic crash recovery, polished HUD variants, Quick
+F1a (experimental, unverified): dashboard launch can inspect an interrupted
+recording, and the original session can be finalized automatically only when a
+durable STOP was already committed. Unstopped recordings remain blocked until
+user STOP; this is not automatic recording resumption. See
+[docs/F1A_RECOVERY.md](docs/F1A_RECOVERY.md).
+
+Not implemented yet: full crash recovery, polished HUD variants, Quick
 Settings, device-specific validation, A/B analytics, DUKO reports, exports and
 Play Store readiness. None of the old CoreMetrics code is imported.
 

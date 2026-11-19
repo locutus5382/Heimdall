@@ -43,7 +43,8 @@ class RecordingRoundTripTest {
             .grantRuntimePermission(app.packageName, Manifest.permission.POST_NOTIFICATIONS)
 
         val dbFile = app.getDatabasePath("heimdall_v1.db")
-        assertFalse("Requires a fresh disposable emulator app installation", dbFile.exists())
+        // App-launch inspection may initialize the fresh empty SQLite DB before
+        // this test begins. The final exact-one-row assertion guards freshness.
 
         // The previous test called the Service directly and missed broken UI wiring.
         compose.onNodeWithText("START").performClick()
@@ -55,6 +56,14 @@ class RecordingRoundTripTest {
         assertTrue(originalId > 0L)
         compose.waitForIdle()
         compose.onNodeWithText("Recording telemetry").assertExists()
+
+        // An Activity recreation must reflect the original ongoing recording,
+        // not allocate a second Service/engine or silently stop sampling.
+        compose.activityRule.scenario.recreate()
+        compose.waitForIdle()
+        compose.onNodeWithText("Recording telemetry").assertExists()
+        val afterRecreate = RecorderStatusHub.state.value as RecorderStatus.Recording
+        assertEquals(originalId, afterRecreate.sessionId)
 
         // Even a second command from another control must not open another writer.
         app.startForegroundService(
