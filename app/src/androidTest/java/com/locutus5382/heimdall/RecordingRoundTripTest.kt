@@ -3,7 +3,6 @@ package com.locutus5382.heimdall
 import android.Manifest
 import android.content.Intent
 import android.os.SystemClock
-import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
