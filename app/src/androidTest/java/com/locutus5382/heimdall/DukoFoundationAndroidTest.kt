@@ -62,14 +62,20 @@ class DukoFoundationAndroidTest {
                     cpuLoadPercent = 40.0, batteryLevelPercent = 70,
                     batteryTemperatureC = 33.0, availableMemoryMiB = 1400L,
                     cpuClockMHz = 1600L, gpuClockMHz = null,
-                    observedElapsedMs = base
+                    observedElapsedMs = base,
+                    batteryCurrentUa = -2_000_000L,
+                    batteryVoltageMv = 4_000,
+                    batteryPlugged = false
                 )))
                 assertTrue(recorder.append(session, DeviceSample(
                     observedAtMs = System.currentTimeMillis() + 2_000L,
                     cpuLoadPercent = 60.0, batteryLevelPercent = 70,
                     batteryTemperatureC = 34.0, availableMemoryMiB = 1300L,
                     cpuClockMHz = 1800L, gpuClockMHz = null,
-                    observedElapsedMs = base + 2_000L
+                    observedElapsedMs = base + 2_000L,
+                    batteryCurrentUa = -2_000_000L,
+                    batteryVoltageMv = 4_000,
+                    batteryPlugged = false
                 )))
                 assertTrue(recorder.persistStop(session))
                 assertTrue(recorder.finish(session))
@@ -82,6 +88,13 @@ class DukoFoundationAndroidTest {
                 val gpu = requireNotNull(report.integrity.metrics[DukoMetric.GPU_LOAD])
                 assertEquals(DukoEvidence.INSUFFICIENT, gpu.evidence)
                 assertNull(gpu.timeWeightedMean)
+                // SQLite adapter must preserve battery microamp and millivolt
+                // units. 2A × 4V = 8W battery-terminal discharge.
+                assertEquals(8.0,
+                    requireNotNull(report.energy.timeWeightedDischargeWatts), 1e-9)
+                assertEquals(8.0 * 2.0 / 3_600.0,
+                    requireNotNull(report.energy.measuredDischargeWh), 1e-9)
+                assertEquals(DukoEvidence.SUPPORTED, report.energy.evidence)
 
                 tags.saveDraft(DukoSessionContext(
                     graphicsDriver = "T30",
