@@ -156,5 +156,63 @@ class RecordingRoundTripTest {
         assertEquals(2, both.size)
         assertEquals(next.sessionId, both[0].id)
         assertEquals(originalId, both[1].id)
+
+        // Emulate process death between writing a session and receiving STOP.
+        // Opening the dashboard must NOT silently allocate another row.
+        val strandedId = android.database.sqlite.SQLiteDatabase.openDatabase(
+            dbFile.absolutePath, null,
+            android.database.sqlite.SQLiteDatabase.OPEN_READWRITE
+        ).use { database ->
+            database.insertOrThrow("sessions", null, android.content.ContentValues().apply {
+                put("started_at_ms", System.currentTimeMillis() - 10_000L)
+                put("status", "RECORDING")
+            })
+        }
+        compose.activityRule.scenario.recreate()
+        await(30_000L) {
+            (RecorderStatusHub.state.value as? RecorderStatus.NeedsAttention)
+                ?.takeIf { it.sessionId == strandedId }
+        }
+        compose.onNodeWithText("START").assertIsNotEnabled()
+        compose.onNodeWithText("RETRY STOP").performClick()
+        await(30_000L) {
+            (RecorderStatusHub.state.value as? RecorderStatus.Finished)
+                ?.takeIf { it.sessionId == strandedId }
+        }
+
+        // Emulate death after durable STOP but before finalization:
+        // inspection must finish the SAME row automatically.
+        val stoppingId = android.database.sqlite.SQLiteDatabase.openDatabase(
+            dbFile.absolutePath, null,
+            android.database.sqlite.SQLiteDatabase.OPEN_READWRITE
+        ).use { database ->
+            database.insertOrThrow("sessions", null, android.content.ContentValues().apply {
+                put("started_at_ms", System.currentTimeMillis() - 10_000L)
+                put("stop_requested_at_ms", System.currentTimeMillis() - 1_000L)
+                put("status", "RECORDING")
+            })
+        }
+        compose.activityRule.scenario.recreate()
+        await(30_000L) {
+            (RecorderStatusHub.state.value as? RecorderStatus.Finished)
+                ?.takeIf { it.sessionId == stoppingId }
+        }
+        android.database.sqlite.SQLiteDatabase.openDatabase(
+            dbFile.absolutePath, null,
+            android.database.sqlite.SQLiteDatabase.OPEN_READONLY
+        ).use { database ->
+            database.rawQuery(
+                "SELECT COUNT(*) FROM sessions WHERE status='RECORDING'", null
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(0L, cursor.getLong(0))
+            }
+            database.rawQuery(
+                "SELECT COUNT(*) FROM sessions", null
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(4L, cursor.getLong(0))
+            }
+        }
     }
 }
