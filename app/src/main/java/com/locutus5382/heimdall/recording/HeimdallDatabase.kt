@@ -11,7 +11,7 @@ import android.database.sqlite.SQLiteOpenHelper
  */
 internal object HeimdallDatabase {
     const val NAME = "heimdall_v1.db"
-    private const val VERSION = 3
+    private const val VERSION = 4
     private val instances = mutableMapOf<String, SQLiteOpenHelper>()
 
     @Synchronized
@@ -77,10 +77,11 @@ internal object HeimdallDatabase {
                     """.trimIndent())
                     db.execSQL("CREATE INDEX samples_session_idx ON samples(session_id,id)")
                     db.execSQL("CREATE INDEX sessions_state_idx ON sessions(status,id)")
+                    createDukoTables(db)
                 }
 
                 override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-                    require(oldVersion in 1..2 && newVersion == 3) {
+                    require(oldVersion in 1..3 && newVersion == 4) {
                         "UNSUPPORTED_MIGRATION_${oldVersion}_${newVersion}"
                     }
                     if (oldVersion == 1) {
@@ -102,8 +103,9 @@ internal object HeimdallDatabase {
                             }
                         }
                     }
-                    // Additive v3 upgrade only; neither historical samples nor
-                    // v1/v2 session IDs are rebuilt or deleted.
+                    // The v3 columns already exist on version-3 installs.
+                    // Versions 1/2 first acquire their full v3 contract.
+                    if (oldVersion <= 2) {
                     listOf(
                         "started_elapsed_ms INTEGER",
                         "end_reason TEXT",
@@ -137,8 +139,41 @@ internal object HeimdallDatabase {
                         """UPDATE sessions SET end_reason='COMPLETED'
                            WHERE status='COMPLETED' AND end_reason IS NULL"""
                     )
+                    }
+                    // DUKO stores metadata in additive tables. Raw sessions
+                    // and all prior samples remain untouched.
+                    createDukoTables(db)
                 }
             }
         }
+    }
+
+    private fun createDukoTables(db: SQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS duko_session_contexts (
+                session_id INTEGER PRIMARY KEY
+                    REFERENCES sessions(id) ON DELETE CASCADE,
+                game TEXT NOT NULL DEFAULT '',
+                emulator TEXT NOT NULL DEFAULT '',
+                graphics_driver TEXT NOT NULL DEFAULT '',
+                performance_mode TEXT NOT NULL DEFAULT '',
+                fan_profile TEXT NOT NULL DEFAULT '',
+                cluster_tune_profile TEXT NOT NULL DEFAULT 'Unknown',
+                cluster_tune_enabled INTEGER,
+                tuning_tool TEXT NOT NULL DEFAULT '',
+                notes TEXT NOT NULL DEFAULT '',
+                tag_source TEXT NOT NULL DEFAULT 'UNKNOWN',
+                updated_at_ms INTEGER NOT NULL
+            )
+        """.trimIndent())
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS duko_device_profiles (
+                session_id INTEGER PRIMARY KEY
+                    REFERENCES sessions(id) ON DELETE CASCADE,
+                contract_version INTEGER NOT NULL,
+                captured_at_ms INTEGER NOT NULL,
+                profile_json TEXT NOT NULL
+            )
+        """.trimIndent())
     }
 }
