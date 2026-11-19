@@ -2,6 +2,8 @@ package com.locutus5382.heimdall.recording
 
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
+import com.locutus5382.heimdall.engine.MetricStatistics
+import com.locutus5382.heimdall.engine.SessionStatistics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.OutputStream
@@ -15,6 +17,15 @@ data class SavedSession(
     val startedAtMs: Long,
     val endedAtMs: Long,
     val samples: Long,
+)
+
+data class SessionOverview(
+    val cpuLoad: MetricStatistics?,
+    val gpuClock: MetricStatistics?,
+    val highestBatteryTempC: Double?,
+    val batteryAtStart: Int?,
+    val batteryAtEnd: Int?,
+    val totalSamples: Long,
 )
 
 class SessionArchive(context: Context) {
@@ -60,6 +71,52 @@ class SessionArchive(context: Context) {
                         )
                     }
                 }
+            }
+    }
+
+    /** Calculate a summary only on demand, on IO, for a completed recording. */
+    suspend fun overview(sessionId: Long): SessionOverview = withContext(Dispatchers.IO) {
+        require(sessionId > 0L)
+        check(path.isFile) { "NO_DATABASE" }
+        SQLiteDatabase.openDatabase(path.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
+            .use { database ->
+                val completed = database.rawQuery(
+                    "SELECT id FROM sessions WHERE id=? AND status='COMPLETED' LIMIT 1",
+                    arrayOf(sessionId.toString())
+                ).use { it.moveToFirst() }
+                check(completed) { "SESSION_NOT_COMPLETED" }
+                val cpu = ArrayList<Double>()
+                val gpu = ArrayList<Double>()
+                var maxTemp: Double? = null
+                var initialBattery: Int? = null
+                var lastBattery: Int? = null
+                var total = 0L
+                database.rawQuery(
+                    """SELECT cpu_load_pct, gpu_clock_mhz, battery_temp_c, battery_pct
+                       FROM samples WHERE session_id=? ORDER BY id""",
+                    arrayOf(sessionId.toString())
+                ).use { cursor ->
+                    while (cursor.moveToNext()) {
+                        total++
+                        if (!cursor.isNull(0)) cpu.add(cursor.getDouble(0))
+                        if (!cursor.isNull(1)) gpu.add(cursor.getDouble(1))
+                        if (!cursor.isNull(2)) {
+                            val value = cursor.getDouble(2)
+                            if (value.isFinite() &&
+                                (maxTemp == null || value > maxTemp!!))
+                                maxTemp = value
+                        }
+                        if (!cursor.isNull(3)) {
+                            val value = cursor.getInt(3)
+                            if (initialBattery == null) initialBattery = value
+                            lastBattery = value
+                        }
+                    }
+                }
+                SessionOverview(
+                    SessionStatistics.of(cpu), SessionStatistics.of(gpu),
+                    maxTemp, initialBattery, lastBattery, total
+                )
             }
     }
 
