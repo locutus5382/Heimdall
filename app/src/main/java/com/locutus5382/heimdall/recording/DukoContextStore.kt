@@ -19,9 +19,12 @@ import org.json.JSONObject
  * state machine. SQLite v4 preserves source profile snapshots and annotations
  * across recording revisions; edits never mutate raw telemetry.
  */
-internal class DukoContextStore(context: Context) {
+internal class DukoContextStore(
+    context: Context,
+    databaseName: String = HeimdallDatabase.NAME
+) {
     private val app = context.applicationContext
-    private val helper = HeimdallDatabase.helper(app)
+    private val helper = HeimdallDatabase.helper(app, databaseName)
 
     suspend fun read(sessionId: Long): DukoSessionContext? = withContext(Dispatchers.IO) {
         val database = helper.readableDatabase
