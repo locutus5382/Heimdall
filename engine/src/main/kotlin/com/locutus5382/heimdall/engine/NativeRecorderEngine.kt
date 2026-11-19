@@ -198,6 +198,16 @@ class NativeRecorderEngine(
         true
     }
 
+    /** Service-only failure before a session has been created. */
+    fun reportStartFailure(code: String) {
+        _status.update { old ->
+            if (old is RecorderStatus.Idle || old is RecorderStatus.Preparing ||
+                old is RecorderStatus.Finished ||
+                (old is RecorderStatus.NeedsAttention && old.sessionId == null)
+            ) RecorderStatus.NeedsAttention(null, code) else old
+        }
+    }
+
     /**
      * Recover from a failure that created no durable session. START still
      * checks storage before opening any row; this cannot overwrite evidence.
