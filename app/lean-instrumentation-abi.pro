@@ -10,4 +10,9 @@
 # Keep coroutines' public facade ABI in the debug-signed, instrumented QA
 # variant only. Production release retains full R8 optimization.
 # This does NOT change any recorder, HUD, database, or analytics logic.
+# Instrumentation also links to Kotlin intrinsics and Compose types/fields.
+# The optimized target and separate test APK need a consistent ABI. Limit
+# these wider rules to debug-signed QA: production release stays fully shrunk.
+-keep class kotlin.** { *; }
 -keep class kotlinx.coroutines.** { *; }
+-keep class androidx.compose.** { *; }
