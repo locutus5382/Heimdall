@@ -31,7 +31,12 @@ enum class HudMetric(val token: String, val title: String) {
     BATTERY("bat", "Battery"),
     BATTERY_TEMP("temp", "Battery temperature"),
     CPU_CLOCK("clock", "Top CPU clock"),
-    FREE_MEMORY("ram", "Free RAM");
+    FREE_MEMORY("ram", "Free RAM"),
+    CPU_TEMP("cput", "CPU temperature"),
+    GPU_TEMP("gput", "GPU temperature"),
+    GPU_LOAD("gpul", "GPU utilization"),
+    THERMAL_HEADROOM("thermh", "Thermal headroom"),
+    BATTERY_CURRENT("bati", "Battery current");
 
     companion object {
         val defaults = setOf(CPU_LOAD, GPU_CLOCK, BATTERY, BATTERY_TEMP)
@@ -90,12 +95,13 @@ class HudTelemetryHistory(private val limit: Int = 36) {
             lastTimeMs = Long.MIN_VALUE
             sessionId = id
         }
-        if (sample == null || sample.observedAtMs <= lastTimeMs) return
-        lastTimeMs = sample.observedAtMs
+        val timestamp = sample?.observedElapsedMs ?: sample?.observedAtMs
+        if (sample == null || timestamp == null || timestamp <= lastTimeMs) return
+        lastTimeMs = timestamp
         if (points.size == limit) points.removeFirst()
         points.addLast(
             Point(
-                sample.observedAtMs,
+                timestamp,
                 sample.cpuLoadPercent?.takeIf { it.isFinite() && it in 0.0..100.0 },
                 sample.gpuClockMHz?.takeIf { it > 0 },
                 sample.batteryTemperatureC?.takeIf { it.isFinite() && it in -30.0..100.0 }
