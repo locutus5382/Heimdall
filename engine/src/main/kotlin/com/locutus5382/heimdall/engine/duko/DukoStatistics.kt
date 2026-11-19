@@ -55,6 +55,11 @@ object DukoStatistics {
                 it.elapsedMs <= window.endMs
         }
         val values = ArrayList<Double>(input.size)
+        val unverifiedSources = input.any {
+            it.isValid() && (it.sourceId.isNullOrBlank() ||
+                it.origin == MeasurementOrigin.UNKNOWN ||
+                it.origin == MeasurementOrigin.USER_DECLARED)
+        }
         var previous: DukoObservation? = null
         var precedingTime: Long? = null
         var missing = 0
@@ -102,7 +107,8 @@ object DukoStatistics {
             .coerceIn(0.0, 1.0)
         val grade = when {
             n < 2 || coverage < QUALIFIED_COVERAGE -> DukoEvidence.INSUFFICIENT
-            coverage < HIGH_COVERAGE || reversed > 0 || sourceSwitches > 0 ->
+            coverage < HIGH_COVERAGE || reversed > 0 || sourceSwitches > 0 ||
+                unverifiedSources ->
                 DukoEvidence.QUALIFIED
             else -> DukoEvidence.SUPPORTED
         }
@@ -112,6 +118,7 @@ object DukoStatistics {
             else if (coverage < HIGH_COVERAGE) add("PARTIAL_TIME_COVERAGE")
             if (reversed > 0) add("NON_MONOTONIC_TIMESTAMPS")
             if (sourceSwitches > 0) add("SENSOR_SOURCE_CHANGED")
+            if (unverifiedSources) add("SOURCE_NOT_VERIFIED")
             if (longestGap > maxContinuousGapMs) add("SAMPLING_GAP")
             if (missing > 0) add("MISSING_OR_INVALID_VALUES")
         }
