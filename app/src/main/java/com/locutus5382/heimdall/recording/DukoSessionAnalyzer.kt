@@ -28,9 +28,11 @@ data class DukoFoundationReport(
     val analysisVersion: Int = 1,
 )
 
-internal class DukoSessionAnalyzer(context: Context) {
+internal class DukoSessionAnalyzer(
+    context: Context, private val databaseName: String = HeimdallDatabase.NAME
+) {
     private val app = context.applicationContext
-    private val helper by lazy { HeimdallDatabase.helper(app) }
+    private val helper by lazy { HeimdallDatabase.helper(app, databaseName) }
     private val selectedMetrics = listOf(
         DukoMetric.CPU_LOAD, DukoMetric.GPU_LOAD,
         DukoMetric.CPU_CLOCK, DukoMetric.GPU_CLOCK,
