@@ -179,7 +179,7 @@ class HeimdallRecorderService : Service() {
         // Cancelling the owning scope immediately prevents further sampling,
         // while the SQLite unfinished row remains the durable recovery owner.
         val state = engine.status.value
-        hud.dismiss()
+        hud.dispose()
         scope.cancel()
         val interrupted = when (state) {
             is RecorderStatus.Recording -> state.sessionId
