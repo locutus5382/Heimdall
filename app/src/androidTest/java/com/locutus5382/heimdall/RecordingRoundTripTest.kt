@@ -57,6 +57,14 @@ class RecordingRoundTripTest {
         compose.waitForIdle()
         compose.onNodeWithText("Recording telemetry").assertExists()
 
+        // An Activity recreation must reflect the original ongoing recording,
+        // not allocate a second Service/engine or silently stop sampling.
+        compose.activityRule.scenario.recreate()
+        compose.waitForIdle()
+        compose.onNodeWithText("Recording telemetry").assertExists()
+        val afterRecreate = RecorderStatusHub.state.value as RecorderStatus.Recording
+        assertEquals(originalId, afterRecreate.sessionId)
+
         // Even a second command from another control must not open another writer.
         app.startForegroundService(
             Intent(app, HeimdallRecorderService::class.java)
