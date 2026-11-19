@@ -168,6 +168,8 @@ class RecordingRoundTripTest {
                 put("status", "RECORDING")
             })
         }
+        app.stopService(Intent(app, HeimdallRecorderService::class.java))
+        Thread.sleep(200)
         compose.activityRule.scenario.recreate()
         await(30_000L) {
             (RecorderStatusHub.state.value as? RecorderStatus.NeedsAttention)
@@ -192,6 +194,8 @@ class RecordingRoundTripTest {
                 put("status", "RECORDING")
             })
         }
+        app.stopService(Intent(app, HeimdallRecorderService::class.java))
+        Thread.sleep(200)
         compose.activityRule.scenario.recreate()
         await(30_000L) {
             (RecorderStatusHub.state.value as? RecorderStatus.Finished)
