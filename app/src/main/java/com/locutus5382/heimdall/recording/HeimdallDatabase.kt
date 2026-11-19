@@ -66,6 +66,11 @@ internal object HeimdallDatabase {
                             battery_voltage_mv INTEGER,
                             battery_plugged INTEGER,
                             gpu_load_pct REAL,
+                            cpu_temp_c REAL,
+                            gpu_temp_c REAL,
+                            cpu_policy_clocks TEXT,
+                            cpu_policy_limits TEXT,
+                            cpu_policy_hardware_max TEXT,
                             FOREIGN KEY(session_id) REFERENCES sessions(id)
                         )
                     """.trimIndent())
@@ -116,6 +121,11 @@ internal object HeimdallDatabase {
                         "battery_voltage_mv INTEGER",
                         "battery_plugged INTEGER",
                         "gpu_load_pct REAL",
+                        "cpu_temp_c REAL",
+                        "gpu_temp_c REAL",
+                        "cpu_policy_clocks TEXT",
+                        "cpu_policy_limits TEXT",
+                        "cpu_policy_hardware_max TEXT",
                     ).forEach { db.execSQL("ALTER TABLE samples ADD COLUMN $it") }
                     db.execSQL(
                         """UPDATE sessions SET sample_count =
