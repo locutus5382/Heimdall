@@ -16,6 +16,8 @@ android {
         versionCode = 7
         versionName = "0.6.0-h1-h4-qa"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Only the minified instrumentation APK references JDK annotation APIs.
+        testProguardFiles("test-proguard-rules.pro")
     }
     buildTypes {
         getByName("release") {
