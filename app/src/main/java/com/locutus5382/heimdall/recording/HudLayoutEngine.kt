@@ -122,7 +122,7 @@ internal class HudLayoutEngine(private val fontFactor: Float = 1f) {
                 val widest = field.maxOfOrNull { slotWidth(it, 14f) } ?: 68f
                 w = min(cap, max(79f, widest + 8f))
                 h = (97f + field.size * 61f) +
-                    if (expanded) 148f else 0f
+                    if (expanded) 206f else 0f
                 header = 25f
                 detail = 0f
                 field.forEachIndexed { i, item ->
@@ -130,8 +130,8 @@ internal class HudLayoutEngine(private val fontFactor: Float = 1f) {
                     slots += HudSlot(item, RectF(8f, y, w - 8f, y + 55f),
                         14f, y + 17f, 14f, y + 42f)
                 }
-                menu = RectF((w - 48f) / 2f, h - (if (expanded) 172f else 54f),
-                    (w + 48f) / 2f, h - (if (expanded) 124f else 6f))
+                menu = RectF((w - 48f) / 2f, h - (if (expanded) 204f else 54f),
+                    (w + 48f) / 2f, h - (if (expanded) 156f else 6f))
                 graph = null
             }
         }
