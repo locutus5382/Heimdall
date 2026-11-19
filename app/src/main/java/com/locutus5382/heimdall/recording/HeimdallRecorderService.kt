@@ -198,7 +198,7 @@ class HeimdallRecorderService : Service() {
             .setContentTitle("HEIMDALL · Device telemetry")
             .setContentText(message)
             .setContentIntent(dashboard)
-            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setSmallIcon(R.drawable.ic_heimdall_notification)
             .setOngoing(ongoing)
             .setOnlyAlertOnce(true)
             .apply {
