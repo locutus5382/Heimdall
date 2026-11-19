@@ -91,12 +91,12 @@ internal class DukoContextStore(context: Context) {
         fun captureForNewSession(
             database: SQLiteDatabase,
             sessionId: Long,
-            app: Context
+            profile: DukoDeviceProfile?,
+            installed: Boolean?
         ) {
-            // Optional profile probing must never break the primary recorder.
-            val probe = DukoDeviceProbe(app)
-            val profile = runCatching { probe.capture() }.getOrNull()
-            val installed = runCatching { probe.isClusterTuneInstalled() }.getOrNull()
+            // The potentially slow hardware probe runs before the recorder's
+            // SQLite transaction. Here we only write an already-captured
+            // snapshot atomically alongside the new session.
             database.insertWithOnConflict(
                 "duko_session_meta", null, ContentValues().apply {
                     put("session_id", sessionId)
