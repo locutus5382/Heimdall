@@ -200,9 +200,10 @@ internal class HudOverlayController(private val app: Context) :
     private fun syncLock(config: HudProfile) {
         val v = view ?: return
         val p = params ?: return
-        val newFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-            if (config.locked) WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE else 0
+        val newFlags =
+            (WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL) or
+            (if (config.locked) WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE else 0)
         // Android 12+ only allows touch pass-through under a qualifying
         // obscuring-opacity limit. Keep the locked main overlay below 0.8,
         // and position the small unlock target outside the HUD rectangle.
