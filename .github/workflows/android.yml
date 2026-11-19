@@ -40,7 +40,7 @@ jobs:
             exit 1
           fi
       - name: Build and run all pure engine tests
-        run: gradle :engine:test :app:assembleDebug --no-daemon --stacktrace
+        run: gradle :engine:test :app:assembleDebug :app:assembleLeanDebug --no-daemon --stacktrace
       - name: Verify standalone Heimdall application ID
         run: |
           APK=app/build/outputs/apk/debug/app-debug.apk
@@ -50,9 +50,35 @@ jobs:
       - name: Upload standalone debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: HEIMDALL-v0.4.0-hud2-debug
+          name: HEIMDALL-v0.5.0-m4-debug
           if-no-files-found: error
           path: app/build/outputs/apk/debug/app-debug.apk
+      - name: Measure baseline and R8-optimized APK sizes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          baseline = Path('app/build/outputs/apk/debug/app-debug.apk')
+          lean = Path('app/build/outputs/apk/leanDebug/app-leanDebug.apk')
+          assert baseline.exists() and lean.exists(), 'Missing optimized APK'
+          b, o = baseline.stat().st_size, lean.stat().st_size
+          saving = 100.0 * (b - o) / b
+          report = f"unshrunk_debug_bytes={b}\\nlean_debug_bytes={o}\\nreduction_percent={saving:.1f}\\n"
+          print(report)
+          Path('app/build/outputs/apk/heimdall-size-report.txt').write_text(report)
+          assert o < b, 'R8 variant must actually be smaller than debug'
+          PY
+      - name: Upload optimized installable QA APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: HEIMDALL-v0.5.0-m4-lean-debug
+          if-no-files-found: error
+          path: app/build/outputs/apk/leanDebug/app-leanDebug.apk
+      - name: Upload APK size comparison
+        uses: actions/upload-artifact@v4
+        with:
+          name: heimdall-apk-size-report
+          if-no-files-found: error
+          path: app/build/outputs/apk/heimdall-size-report.txt
       - name: Preserve engine test results on failure
         if: always()
         uses: actions/upload-artifact@v4
@@ -96,7 +122,13 @@ jobs:
           profile: pixel_2
           disable-animations: true
           emulator-boot-timeout: 900
-          script: gradle :app:connectedDebugAndroidTest --no-daemon --stacktrace
+          script: |
+            gradle :app:connectedDebugAndroidTest :app:assembleLeanDebug --no-daemon --stacktrace
+            adb install -r app/build/outputs/apk/leanDebug/app-leanDebug.apk
+            adb shell am force-stop com.locutus5382.heimdall
+            adb shell am start -n com.locutus5382.heimdall/.ui.MainActivity
+            sleep 3
+            adb shell pidof com.locutus5382.heimdall
       - name: Preserve Android instrumentation results
         if: always()
         uses: actions/upload-artifact@v4
