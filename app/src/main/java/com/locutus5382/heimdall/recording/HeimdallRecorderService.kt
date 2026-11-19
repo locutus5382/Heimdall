@@ -17,8 +17,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * One foreground Service, one native recorder engine, one database writer.
@@ -166,14 +164,26 @@ class HeimdallRecorderService : Service() {
     }
 
     override fun onDestroy() {
-        // If the OS destroys the Service while the process survives, do not
-        // leave a writer running without its foreground owner. A killed process
-        // naturally preserves the on-disk unfinished row for recovery review.
-        runBlocking(Dispatchers.IO) {
-            withTimeoutOrNull(3_000L) { engine.shutdownForServiceDeath() }
-        }
+        // Android calls onDestroy on its main thread. NEVER runBlocking here:
+        // the sampler has a Main dispatcher and cancelAndJoin could wait for
+        // that same blocked thread (creating a 3s timeout / stuck teardown).
+        //
+        // Cancelling the owning scope immediately prevents further sampling,
+        // while the SQLite unfinished row remains the durable recovery owner.
+        val state = engine.status.value
         hud.dismiss()
         scope.cancel()
+        val interrupted = when (state) {
+            is RecorderStatus.Recording -> state.sessionId
+            is RecorderStatus.Stopping -> state.sessionId
+            is RecorderStatus.Saving -> state.sessionId
+            else -> null
+        }
+        if (interrupted != null) {
+            RecorderStatusHub.publish(
+                RecorderStatus.NeedsAttention(interrupted, "SERVICE_INTERRUPTED")
+            )
+        }
         super.onDestroy()
     }
 
