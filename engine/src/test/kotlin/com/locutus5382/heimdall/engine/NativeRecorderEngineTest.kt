@@ -21,6 +21,11 @@ class NativeRecorderEngineTest {
         var failFinish = false
         var stopDurable = false
         override suspend fun unresolvedSessionId() = active
+        override suspend fun recoverPendingStop(): Long? {
+            val id = active ?: return null
+            if (!stopDurable) return null
+            return if (finish(id)) id else null
+        }
         override suspend fun begin(): Long {
             check(active == null)
             val id = nextId++
@@ -162,4 +167,58 @@ class NativeRecorderEngineTest {
             assertEquals(after, store.writes)
         } finally { scope.cancel() }
     }
+
+    @Test fun restartRecoversDurableStopForOriginalSession() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val store = FakeStore().apply {
+                active = 82L
+                stopDurable = true
+                writes = 12L
+            }
+            val engine = NativeRecorderEngine(FakeSource(), store, scope)
+            val restored = engine.inspectExisting() as RecorderStatus.Finished
+            assertEquals(82L, restored.sessionId)
+            assertEquals(12L, restored.samples)
+            assertNull(store.active)
+            assertEquals(1, store.finishes)
+            assertEquals(7L, store.nextId) // A replacement session was not created.
+        } finally { scope.cancel() }
+    }
+
+    @Test fun restartWithoutStopRetainsOriginalUntilUserStops() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val store = FakeStore().apply { active = 82L }
+            val engine = NativeRecorderEngine(FakeSource(), store, scope)
+            val status = engine.inspectExisting() as RecorderStatus.NeedsAttention
+            assertEquals(82L, status.sessionId)
+            assertEquals("UNFINISHED_SESSION", status.code)
+            assertFalse(engine.start())
+            assertEquals(82L, store.active)
+            assertTrue(engine.stop())
+            assertEquals(82L, (engine.status.value as RecorderStatus.Finished).sessionId)
+            assertEquals(7L, store.nextId)
+        } finally { scope.cancel() }
+    }
+
+    @Test fun failedAutomaticFinalizationPreservesEvidenceForManualStopRetry() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val store = FakeStore().apply {
+                active = 82L
+                stopDurable = true
+                failFinish = true
+            }
+            val engine = NativeRecorderEngine(FakeSource(), store, scope)
+            assertTrue(engine.inspectExisting() is RecorderStatus.NeedsAttention)
+            assertEquals(82L, store.active)
+            assertEquals(0, store.finishes)
+            store.failFinish = false
+            assertTrue(engine.stop())
+            assertNull(store.active)
+            assertEquals(1, store.finishes)
+        } finally { scope.cancel() }
+    }
+
 }
