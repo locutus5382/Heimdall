@@ -1,9 +1,9 @@
 package com.locutus5382.heimdall
 
 import android.Manifest
-import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
+import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -54,6 +54,8 @@ class RecordingRoundTripTest {
         }
         val originalId = recording.sessionId
         assertTrue(originalId > 0L)
+        compose.waitForIdle()
+        compose.onNodeWithText("Recording telemetry").assertExists()
 
         // Even a second command from another control must not open another writer.
         app.startForegroundService(
@@ -69,6 +71,8 @@ class RecordingRoundTripTest {
                 ?.takeIf { it.sessionId == originalId }
         }
         assertTrue(finished.samples > 0L)
+        compose.waitForIdle()
+        compose.onNodeWithText("Session saved").assertExists()
 
         val database = android.database.sqlite.SQLiteDatabase.openDatabase(
             dbFile.absolutePath, null,
