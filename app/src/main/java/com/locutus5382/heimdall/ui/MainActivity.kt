@@ -280,7 +280,7 @@ private fun HeimdallDashboard(
                 refreshKey = (state as? RecorderStatus.Finished)?.sessionId ?: 0L
             )
             DiagnosticsPanel()
-            Text("HEIMDALL · ODIN TEST CANDIDATE 0.3.1", color = Marigold, fontSize = 12.sp,
+            Text("HEIMDALL · CANVAS HUD 2.0 / 0.4", color = Marigold, fontSize = 12.sp,
                 fontWeight = FontWeight.Bold)
             Text("One native recorder. Transactional session storage, " +
                 "percentile summaries, local CSV export, Quick Settings and " +
