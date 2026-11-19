@@ -61,11 +61,12 @@ internal class HudOverlayController(private val app: Context) :
         if (disposed) return
         latest = status
         val recording = status as? RecorderStatus.Recording
-        if (recording == null || !store.enabled() ||
-            !Settings.canDrawOverlays(app)) {
+        if (recording == null) {
             dismiss()
             return
         }
+        // Track the session even when its overlay is hidden. Hiding the HUD
+        // cannot restart the REC elapsed timer or create a second ring buffer.
         if (activeSession != recording.sessionId) {
             activeSession = recording.sessionId
             sessionObservedStartMs = SystemClock.elapsedRealtime()
@@ -74,6 +75,10 @@ internal class HudOverlayController(private val app: Context) :
             history.clear()
         }
         history.add(recording.sessionId, recording.last)
+        if (!store.enabled() || !Settings.canDrawOverlays(app)) {
+            hideWindow()
+            return
+        }
         if (view == null && SystemClock.elapsedRealtime() - lastFailure > 3_000L) {
             create()
         }
@@ -182,6 +187,13 @@ internal class HudOverlayController(private val app: Context) :
             recording.last, history.snapshot(), saving = stopSent,
             elapsedMs = now - sessionObservedStartMs,
             thermal = thermal)
+        val originalX = params?.x
+        val originalY = params?.y
+        alignDock(config)
+        if (originalX != params?.x || originalY != params?.y) {
+            updateWindow()
+            positionUnlock()
+        }
         syncLock(config)
     }
 
@@ -404,18 +416,22 @@ internal class HudOverlayController(private val app: Context) :
             .onFailure { Log.w("HeimdallHUD", "Unlock cleanup", it) }
     }
 
-    fun dismiss() {
+    private fun hideWindow() {
         removeUnlock()
         val current = view ?: return
         view = null
         params = null
+        runCatching { wm.removeViewImmediate(current) }
+            .onFailure { Log.w("HeimdallHUD", "Canvas cleanup", it) }
+    }
+
+    fun dismiss() {
+        hideWindow()
         stopSent = false
         activeSession = -1L
         sessionObservedStartMs = 0L
         hotSinceMs = 0L
         history.clear()
-        runCatching { wm.removeViewImmediate(current) }
-            .onFailure { Log.w("HeimdallHUD", "Canvas cleanup", it) }
     }
 
     fun dispose() {
