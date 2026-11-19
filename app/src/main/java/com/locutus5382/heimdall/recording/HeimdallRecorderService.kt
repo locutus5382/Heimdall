@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.res.Configuration
 import android.content.Intent
 import android.os.IBinder
 import com.locutus5382.heimdall.R
@@ -171,6 +172,11 @@ class HeimdallRecorderService : Service() {
             .build()
     }
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        hud.realign()
+    }
+
     override fun onDestroy() {
         // Android calls onDestroy on its main thread. NEVER runBlocking here:
         // the sampler has a Main dispatcher and cancelAndJoin could wait for
@@ -179,7 +185,7 @@ class HeimdallRecorderService : Service() {
         // Cancelling the owning scope immediately prevents further sampling,
         // while the SQLite unfinished row remains the durable recovery owner.
         val state = engine.status.value
-        hud.dismiss()
+        hud.dispose()
         scope.cancel()
         val interrupted = when (state) {
             is RecorderStatus.Recording -> state.sessionId
