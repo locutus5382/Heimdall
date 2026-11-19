@@ -19,6 +19,39 @@ internal class AndroidTelemetrySource(context: Context) : DeviceSampleSource {
     private val app = context.applicationContext
     private var previousCpu: Pair<Long, Long>? = null
 
+    // Discover CPU policies instead of assuming Odin's 0/3/7 layout.
+    // The displayed clock is the maximum *observed readable policy clock*,
+    // not a whole-chip mean, CPU percentage or an overclock capability.
+    private val policyPaths: List<String> by lazy {
+        runCatching {
+            File("/sys/devices/system/cpu/cpufreq").listFiles()
+                ?.filter { it.name.matches(Regex("policy[0-9]+")) }
+                ?.map { "${it.absolutePath}/scaling_cur_freq" }
+                .orEmpty()
+        }.getOrDefault(emptyList()).ifEmpty {
+            listOf("/sys/devices/system/cpu/cpufreq/policy0/scaling_cur_freq")
+        }
+    }
+
+    // Mali and other GPUs may expose a named devfreq directory. Read-only;
+    // paths we cannot identify or access remain unavailable.
+    private val gpuPaths: List<String> by lazy {
+        val discovered = runCatching {
+            File("/sys/class/devfreq").listFiles()
+                ?.filter {
+                    val name = it.name.lowercase()
+                    name.contains("gpu") || name.contains("mali") ||
+                        name.contains("kgsl")
+                }
+                ?.map { "${it.absolutePath}/cur_freq" }
+                .orEmpty()
+        }.getOrDefault(emptyList())
+        listOf(
+            "/sys/class/kgsl/kgsl-3d0/devfreq/cur_freq",
+            "/sys/class/kgsl/kgsl-3d0/gpuclk"
+        ) + discovered
+    }
+
     override suspend fun read(): DeviceSample = withContext(Dispatchers.IO) {
         val battery = app.registerReceiver(
             null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
@@ -38,12 +71,9 @@ internal class AndroidTelemetrySource(context: Context) : DeviceSampleSource {
             batteryLevelPercent = percent,
             batteryTemperatureC = batteryTemp,
             availableMemoryMiB = memory.availMem / (1024L * 1024L),
-            cpuClockMHz = readKhzAsMhzOrNull(
-                "/sys/devices/system/cpu/cpufreq/policy0/scaling_cur_freq"),
-            gpuClockMHz = readHzAsMhzOrNull(
-                "/sys/class/kgsl/kgsl-3d0/devfreq/cur_freq")
-                ?: readHzAsMhzOrNull(
-                    "/sys/class/kgsl/kgsl-3d0/gpuclk"),
+            cpuClockMHz = policyPaths.mapNotNull(::readKhzAsMhzOrNull)
+                .maxOrNull(),
+            gpuClockMHz = gpuPaths.firstNotNullOfOrNull(::readHzAsMhzOrNull),
         )
     }
 
@@ -63,10 +93,10 @@ internal class AndroidTelemetrySource(context: Context) : DeviceSampleSource {
     }.getOrNull()
 
     private fun readKhzAsMhzOrNull(path: String): Long? =
-        readPositiveLong(path)?.div(1000L)
+        readPositiveLong(path)?.takeIf { it >= 1_000L }?.div(1000L)
 
     private fun readHzAsMhzOrNull(path: String): Long? =
-        readPositiveLong(path)?.div(1_000_000L)
+        readPositiveLong(path)?.takeIf { it >= 1_000_000L }?.div(1_000_000L)
 
     private fun readPositiveLong(path: String): Long? =
         runCatching { File(path).readText().trim().toLongOrNull() }

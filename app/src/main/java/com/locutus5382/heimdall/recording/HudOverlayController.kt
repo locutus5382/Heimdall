@@ -7,8 +7,14 @@ import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.provider.Settings
+import android.os.SystemClock
 import android.util.Log
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.animation.AlphaAnimation
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToInt
 import android.view.View
 import android.view.WindowManager
 import android.widget.LinearLayout
@@ -28,6 +34,9 @@ internal class HudOverlayController(private val app: Context) {
     private var cpu: TextView? = null
     private var battery: TextView? = null
     private var dot: TextView? = null
+    private var gpu: TextView? = null
+    private var temperature: TextView? = null
+    private var hotSinceMs: Long? = null
 
     fun render(status: RecorderStatus) {
         if (status !is RecorderStatus.Recording ||
@@ -43,6 +52,27 @@ internal class HudOverlayController(private val app: Context) {
         battery?.text = status.last?.batteryLevelPercent?.let {
             "BAT $it%"
         } ?: "BAT —"
+        gpu?.text = status.last?.gpuClockMHz?.let { "GPU $it MHz" } ?: "GPU —"
+        val t = status.last?.batteryTemperatureC
+        temperature?.text = t?.let {
+            String.format(Locale.US, "T %.1f°C", it)
+        } ?: "T —"
+        val now = SystemClock.elapsedRealtime()
+        val warning = when {
+            t == null -> { hotSinceMs = null; Color.rgb(234, 241, 255) }
+            t > 42.0 -> {
+                if (hotSinceMs == null) hotSinceMs = now
+                if (now - (hotSinceMs ?: now) >= 15_000L)
+                    Color.rgb(255, 132, 69)
+                else Color.rgb(242, 169, 0)
+            }
+            t >= 38.0 -> {
+                hotSinceMs = null
+                Color.rgb(242, 169, 0)
+            }
+            else -> { hotSinceMs = null; Color.rgb(234, 241, 255) }
+        }
+        temperature?.setTextColor(warning)
         dot?.text = "●"
     }
 
@@ -71,18 +101,35 @@ internal class HudOverlayController(private val app: Context) {
             setPadding(dp(9), dp(3), dp(9), dp(3))
             background = GradientDrawable(
                 GradientDrawable.Orientation.LEFT_RIGHT,
-                intArrayOf(Color.argb(241, 9, 15, 30), Color.argb(224, 20, 39, 76))
+                intArrayOf(
+                    Color.argb(244, 37, 71, 115),
+                    Color.argb(243, 13, 28, 55),
+                    Color.argb(237, 7, 17, 37)
+                )
             ).apply {
                 cornerRadius = dp(30).toFloat()
-                setStroke(dp(1), Color.argb(164, 154, 185, 228))
+                setStroke(dp(1), Color.argb(200, 154, 185, 228))
             }
             elevation = dp(7).toFloat()
         }
         pill.addView(label("HEIMDALL", marigold, 11f, true))
-        dot = label("●", Color.rgb(255, 73, 82), 18f)
-            .also { pill.addView(it) }
+        dot = label("●", Color.rgb(255, 73, 82), 18f).apply {
+            startAnimation(AlphaAnimation(.35f, 1f).apply {
+                duration = 650
+                repeatCount = AlphaAnimation.INFINITE
+                repeatMode = AlphaAnimation.REVERSE
+            })
+        }.also { pill.addView(it) }
         cpu = label("CPU —", ice, 12f, true).also { pill.addView(it) }
+        gpu = label("GPU —", ice, 12f, true).also { pill.addView(it) }
         battery = label("BAT —", ice, 12f, true).also { pill.addView(it) }
+        temperature = label("T —", ice, 12f, true).also { pill.addView(it) }
+        val grip = label("⋮⋮", Color.rgb(154, 185, 228), 18f, true).apply {
+            minWidth = dp(48)
+            minHeight = dp(48)
+            contentDescription = "Drag Heimdall telemetry"
+        }
+        pill.addView(grip)
         val stopChip = label("STOP", marigold, 12f, true).apply {
             minWidth = dp(54)
             minHeight = dp(48)
@@ -92,6 +139,10 @@ internal class HudOverlayController(private val app: Context) {
                 setStroke(dp(1), marigold)
             }
             setOnClickListener {
+                // Disable repeated taps until the one authoritative recorder
+                // has acknowledged STOP or Android rejects the command.
+                isEnabled = false
+                text = "SAVING"
                 // Dispatch to the same foreground Service as UI and QS Tile.
                 // No HUD-owned engine, database or second sampler.
                 try {
@@ -99,6 +150,8 @@ internal class HudOverlayController(private val app: Context) {
                         Intent(app, HeimdallRecorderService::class.java)
                             .setAction(HeimdallRecorderService.STOP))
                 } catch (e: Exception) {
+                    isEnabled = true
+                    text = "STOP"
                     Log.w("HeimdallHUD", "STOP dispatch refused", e)
                 }
             }
@@ -112,11 +165,47 @@ internal class HudOverlayController(private val app: Context) {
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.END
-            x = dp(16)
-            y = dp(90)
+            gravity = Gravity.TOP or Gravity.LEFT
+            x = prefs.getInt("hud_x", dp(16))
+            y = prefs.getInt("hud_y", dp(90))
             title = "Heimdall recording HUD"
         }
+        val screen = app.resources.displayMetrics
+        grip.setOnTouchListener(object : View.OnTouchListener {
+            var lastX = 0f
+            var lastY = 0f
+            override fun onTouch(v: View, event: MotionEvent): Boolean {
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        lastX = event.rawX
+                        lastY = event.rawY
+                        return true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        params.x += (event.rawX - lastX).roundToInt()
+                        params.y += (event.rawY - lastY).roundToInt()
+                        lastX = event.rawX
+                        lastY = event.rawY
+                        params.x = params.x.coerceIn(
+                            0, max(0, screen.widthPixels - pill.width))
+                        params.y = params.y.coerceIn(
+                            0, max(0, screen.heightPixels - pill.height))
+                        runCatching { window.updateViewLayout(pill, params) }
+                        return true
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        val edge = max(0, screen.widthPixels - pill.width - dp(8))
+                        params.x = if (params.x < edge / 2) dp(8) else edge
+                        params.x = min(params.x, edge)
+                        runCatching { window.updateViewLayout(pill, params) }
+                        prefs.edit().putInt("hud_x", params.x)
+                            .putInt("hud_y", params.y).apply()
+                        return true
+                    }
+                }
+                return false
+            }
+        })
         try {
             window.addView(pill, params)
             view = pill
@@ -124,6 +213,8 @@ internal class HudOverlayController(private val app: Context) {
             dot = null
             cpu = null
             battery = null
+            gpu = null
+            temperature = null
             Log.w("HeimdallHUD", "Overlay unavailable; recording continues", e)
         }
     }
@@ -131,9 +222,13 @@ internal class HudOverlayController(private val app: Context) {
     fun dismiss() {
         val current = view ?: return
         view = null
+        hotSinceMs = null
+        dot?.clearAnimation()
         dot = null
         cpu = null
         battery = null
+        gpu = null
+        temperature = null
         try {
             window.removeViewImmediate(current)
         } catch (e: Exception) {
