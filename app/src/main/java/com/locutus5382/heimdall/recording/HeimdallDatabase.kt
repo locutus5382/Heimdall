@@ -25,8 +25,9 @@ internal object HeimdallDatabase {
                 override fun onConfigure(db: SQLiteDatabase) {
                     super.onConfigure(db)
                     db.setForeignKeyConstraintsEnabled(true)
-                    db.execSQL("PRAGMA busy_timeout=5000")
-                    db.execSQL("PRAGMA synchronous=NORMAL")
+                    // Android SQLiteDatabase.execSQL forbids PRAGMA statements
+                    // that return results. WAL is enabled through the helper
+                    // API; rely on Android's connection-level busy handling.
                 }
 
                 override fun onCreate(db: SQLiteDatabase) {
