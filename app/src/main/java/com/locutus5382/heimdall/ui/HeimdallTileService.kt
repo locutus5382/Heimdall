@@ -59,13 +59,6 @@ class HeimdallTileService : TileService() {
                 return@launch
             }
 
-            if (Build.VERSION.SDK_INT >= 33 &&
-                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
-                PackageManager.PERMISSION_GRANTED) {
-                openDashboard()
-                return@launch
-            }
-
             val action = when (state) {
                 is RecorderStatus.Recording -> HeimdallRecorderService.STOP
                 is RecorderStatus.NeedsAttention -> {
