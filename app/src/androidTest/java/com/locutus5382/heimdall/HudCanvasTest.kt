@@ -59,14 +59,6 @@ class HudCanvasTest {
         bitmap.recycle()
     }
 
-    private fun tap(view: View, x: Float, y: Float) {
-        val t = SystemClock.uptimeMillis()
-        view.onTouchEvent(MotionEvent.obtain(t, t,
-            MotionEvent.ACTION_DOWN, x, y, 0).also { it.recycleAfter = false })
-        view.onTouchEvent(MotionEvent.obtain(t, t + 40,
-            MotionEvent.ACTION_UP, x, y, 0))
-    }
-
     @Test fun allThreeLayoutsDrawWithMissingSamplesAndTouchableButtons() {
         val app = InstrumentationRegistry.getInstrumentation().targetContext
         val actions = Actions()
@@ -92,12 +84,16 @@ class HudCanvasTest {
                 val x = (designW - 38f) * view.width / designW
                 val y = (top + 24f) * view.height / designH
                 val t = SystemClock.uptimeMillis()
-                view.onTouchEvent(MotionEvent.obtain(
+                val down = MotionEvent.obtain(
                     t, t, MotionEvent.ACTION_DOWN, x, y, 0
-                ).apply { recycle() })
-                view.onTouchEvent(MotionEvent.obtain(
+                )
+                view.onTouchEvent(down)
+                down.recycle()
+                val up = MotionEvent.obtain(
                     t, t + 50L, MotionEvent.ACTION_UP, x, y, 0
-                ).apply { recycle() })
+                )
+                view.onTouchEvent(up)
+                up.recycle()
             }
         }
         assertEquals(3, actions.stops)
