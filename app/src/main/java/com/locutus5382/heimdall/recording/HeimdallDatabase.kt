@@ -11,8 +11,22 @@ import android.database.sqlite.SQLiteOpenHelper
  */
 internal object HeimdallDatabase {
     const val NAME = "heimdall_v1.db"
-    private const val VERSION = 3
+    private const val VERSION = 4
     private val instances = mutableMapOf<String, SQLiteOpenHelper>()
+
+    private fun createDukoTables(db: SQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS duko_session_meta (
+                session_id INTEGER PRIMARY KEY
+                    REFERENCES sessions(id) ON DELETE CASCADE,
+                context_json TEXT NOT NULL,
+                device_profile_json TEXT,
+                clustertune_installed INTEGER,
+                captured_at_ms INTEGER,
+                updated_at_ms INTEGER NOT NULL
+            )
+        """.trimIndent())
+    }
 
     @Synchronized
     fun helper(context: Context, filename: String = NAME): SQLiteOpenHelper {
@@ -77,66 +91,75 @@ internal object HeimdallDatabase {
                     """.trimIndent())
                     db.execSQL("CREATE INDEX samples_session_idx ON samples(session_id,id)")
                     db.execSQL("CREATE INDEX sessions_state_idx ON sessions(status,id)")
+                    createDukoTables(db)
                 }
 
                 override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-                    require(oldVersion in 1..2 && newVersion == 3) {
+                    require(oldVersion in 1..3 && newVersion == 4) {
                         "UNSUPPORTED_MIGRATION_${oldVersion}_${newVersion}"
                     }
-                    if (oldVersion == 1) {
-                        db.execSQL("ALTER TABLE sessions ADD COLUMN stop_requested_at_ms INTEGER")
-                        db.execSQL("CREATE INDEX sessions_state_idx ON sessions(status,id)")
-                        val legacy = app.getSharedPreferences(
-                            "heimdall_recorder_lease_v1", Context.MODE_PRIVATE
-                        )
-                        if (legacy.getBoolean("active", false) &&
-                            legacy.getBoolean("stop_requested", false)) {
-                            val oldId = legacy.getLong("id", -1L)
-                            if (oldId > 0L) {
-                                db.execSQL(
-                                    """UPDATE sessions SET stop_requested_at_ms=?
-                                       WHERE id=? AND status='RECORDING'
-                                       AND stop_requested_at_ms IS NULL""",
-                                    arrayOf(System.currentTimeMillis(), oldId)
-                                )
+                    if (oldVersion <= 2) {
+                        if (oldVersion == 1) {
+                            db.execSQL("ALTER TABLE sessions ADD COLUMN stop_requested_at_ms INTEGER")
+                            db.execSQL("CREATE INDEX sessions_state_idx ON sessions(status,id)")
+                            val legacy = app.getSharedPreferences(
+                                "heimdall_recorder_lease_v1", Context.MODE_PRIVATE
+                            )
+                            if (legacy.getBoolean("active", false) &&
+                                legacy.getBoolean("stop_requested", false)) {
+                                val oldId = legacy.getLong("id", -1L)
+                                if (oldId > 0L) {
+                                    db.execSQL(
+                                        """UPDATE sessions SET stop_requested_at_ms=?
+                                           WHERE id=? AND status='RECORDING'
+                                           AND stop_requested_at_ms IS NULL""",
+                                        arrayOf(System.currentTimeMillis(), oldId)
+                                    )
+                                }
                             }
                         }
+                        // Additive v3 upgrade only; neither historical samples nor
+                        // v1/v2 session IDs are rebuilt or deleted.
+                        listOf(
+                            "started_elapsed_ms INTEGER",
+                            "end_reason TEXT",
+                            "sample_count INTEGER NOT NULL DEFAULT 0",
+                            "device_model TEXT",
+                            "android_sdk INTEGER",
+                            "app_version TEXT",
+                            "sample_interval_ms INTEGER NOT NULL DEFAULT 2000",
+                            "capability_summary TEXT",
+                        ).forEach { db.execSQL("ALTER TABLE sessions ADD COLUMN $it") }
+                        listOf(
+                            "elapsed_ms INTEGER",
+                            "thermal_status INTEGER",
+                            "thermal_headroom REAL",
+                            "battery_current_ua INTEGER",
+                            "battery_voltage_mv INTEGER",
+                            "battery_plugged INTEGER",
+                            "gpu_load_pct REAL",
+                            "cpu_temp_c REAL",
+                            "gpu_temp_c REAL",
+                            "cpu_policy_clocks TEXT",
+                            "cpu_policy_limits TEXT",
+                            "cpu_policy_hardware_max TEXT",
+                        ).forEach { db.execSQL("ALTER TABLE samples ADD COLUMN $it") }
+                        db.execSQL(
+                            """UPDATE sessions SET sample_count =
+                               (SELECT COUNT(*) FROM samples WHERE session_id=sessions.id)
+                               WHERE status='COMPLETED'"""
+                        )
+                        db.execSQL(
+                            """UPDATE sessions SET end_reason='COMPLETED'
+                               WHERE status='COMPLETED' AND end_reason IS NULL"""
+                        )
+    
                     }
-                    // Additive v3 upgrade only; neither historical samples nor
-                    // v1/v2 session IDs are rebuilt or deleted.
-                    listOf(
-                        "started_elapsed_ms INTEGER",
-                        "end_reason TEXT",
-                        "sample_count INTEGER NOT NULL DEFAULT 0",
-                        "device_model TEXT",
-                        "android_sdk INTEGER",
-                        "app_version TEXT",
-                        "sample_interval_ms INTEGER NOT NULL DEFAULT 2000",
-                        "capability_summary TEXT",
-                    ).forEach { db.execSQL("ALTER TABLE sessions ADD COLUMN $it") }
-                    listOf(
-                        "elapsed_ms INTEGER",
-                        "thermal_status INTEGER",
-                        "thermal_headroom REAL",
-                        "battery_current_ua INTEGER",
-                        "battery_voltage_mv INTEGER",
-                        "battery_plugged INTEGER",
-                        "gpu_load_pct REAL",
-                        "cpu_temp_c REAL",
-                        "gpu_temp_c REAL",
-                        "cpu_policy_clocks TEXT",
-                        "cpu_policy_limits TEXT",
-                        "cpu_policy_hardware_max TEXT",
-                    ).forEach { db.execSQL("ALTER TABLE samples ADD COLUMN $it") }
-                    db.execSQL(
-                        """UPDATE sessions SET sample_count =
-                           (SELECT COUNT(*) FROM samples WHERE session_id=sessions.id)
-                           WHERE status='COMPLETED'"""
-                    )
-                    db.execSQL(
-                        """UPDATE sessions SET end_reason='COMPLETED'
-                           WHERE status='COMPLETED' AND end_reason IS NULL"""
-                    )
+                    if (oldVersion < 4) {
+                        // Dedicated structured context table; no historical
+                        // row is rewritten or given invented device metadata.
+                        createDukoTables(db)
+                    }
                 }
             }
         }
