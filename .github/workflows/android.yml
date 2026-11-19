@@ -46,6 +46,8 @@ jobs:
           python3 scripts/check_lean_test_abi.py \
             app/build/outputs/apk/leanDebug/app-leanDebug.apk \
             kotlin.LazyKt \
+            kotlin.coroutines.intrinsics.IntrinsicsKt \
+            androidx.compose.runtime.MonotonicFrameClock \
             kotlinx.coroutines.JobKt \
             kotlinx.coroutines.BuildersKt \
             kotlinx.coroutines.CoroutineScopeKt
