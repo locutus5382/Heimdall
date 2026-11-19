@@ -94,6 +94,12 @@ class RecordingRoundTripTest {
         val bytes = ByteArrayOutputStream()
         val csvRows = runBlocking { archive.exportCsv(originalId, bytes) }
         assertEquals(finished.samples, csvRows)
+        val overview = runBlocking { archive.overview(originalId) }
+        assertEquals(csvRows, overview.totalSamples)
+        if (overview.cpuLoad != null) {
+            assertTrue(overview.cpuLoad!!.median <= overview.cpuLoad!!.p95)
+            assertTrue(overview.cpuLoad!!.p95 <= overview.cpuLoad!!.peak)
+        }
         val csv = bytes.toString("UTF-8")
         assertTrue(csv.startsWith("sample_id,time_ms,cpu_load_pct"))
         assertEquals(csvRows.toInt() + 1, csv.lines().filter { it.isNotEmpty() }.size)
@@ -112,6 +118,17 @@ class RecordingRoundTripTest {
                 assertEquals("COMPLETED", c.getString(2))
                 assertFalse(c.isNull(3))
             }
+            db.rawQuery("PRAGMA user_version", null).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(2, cursor.getInt(0))
+            }
+            db.rawQuery(
+                "SELECT stop_requested_at_ms FROM sessions WHERE id=?",
+                arrayOf(originalId.toString())
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertFalse("STOP must be durable inside SQLite", cursor.isNull(0))
+            }
             db.rawQuery(
                 "SELECT COUNT(*) FROM samples WHERE session_id=?",
                 arrayOf(originalId.toString())
@@ -120,5 +137,24 @@ class RecordingRoundTripTest {
                 assertTrue(c.getLong(0) > 0L)
             }
         }
+
+        // Repeated recordings are an important real-world failure mode.
+        // A prior completed row must be immutable when another session starts.
+        compose.onNodeWithText("START").performClick()
+        val next = await(30_000L) {
+            (RecorderStatusHub.state.value as? RecorderStatus.Recording)
+                ?.takeIf { it.sessionId != originalId && it.persistedSamples > 0L }
+        }
+        assertTrue(next.sessionId > originalId)
+        compose.onNodeWithText("STOP & SAVE").performClick()
+        val second = await(30_000L) {
+            (RecorderStatusHub.state.value as? RecorderStatus.Finished)
+                ?.takeIf { it.sessionId == next.sessionId }
+        }
+        assertTrue(second.samples > 0L)
+        val both = runBlocking { archive.recent() }
+        assertEquals(2, both.size)
+        assertEquals(next.sessionId, both[0].id)
+        assertEquals(originalId, both[1].id)
     }
 }
