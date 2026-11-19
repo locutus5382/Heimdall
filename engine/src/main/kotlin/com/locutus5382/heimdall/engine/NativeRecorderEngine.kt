@@ -114,7 +114,12 @@ class NativeRecorderEngine(
             _status.value = RecorderStatus.NeedsAttention(null, "INVALID_SESSION_ID")
             return@withLock false
         }
-        _status.value = RecorderStatus.Recording(id, 0L)
+        val sessionStart = try {
+            persistence.sessionStartElapsedMs(id)
+        } catch (_: Exception) { null }
+        _status.value = RecorderStatus.Recording(
+            id, 0L, startedElapsedMs = sessionStart
+        )
         // One writer owns this session, so a successful append increments its
         // durable sample count without an O(N) COUNT(*) scan every 2 seconds.
         // STOP still queries SQLite for its authoritative final count.
