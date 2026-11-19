@@ -50,6 +50,8 @@ fun SessionHistoryPanel(refreshKey: Long) {
     var expandedId by remember { mutableStateOf<Long?>(null) }
     var details by remember { mutableStateOf<SessionOverview?>(null) }
     var reading by remember { mutableStateOf(false) }
+    var editingContextId by remember { mutableStateOf<Long?>(null) }
+    var dukoSummaryId by remember { mutableStateOf<Long?>(null) }
 
     val chooser = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/csv")
@@ -138,6 +140,26 @@ fun SessionHistoryPanel(refreshKey: Long) {
                         }
                     ) { Text("EXPORT CSV") }
                 }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            editingContextId =
+                                if (editingContextId == session.id) null else session.id
+                        }
+                    ) { Text(if (editingContextId == session.id) "HIDE TAGS" else "TEST TAGS") }
+                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            dukoSummaryId =
+                                if (dukoSummaryId == session.id) null else session.id
+                        }
+                    ) { Text(if (dukoSummaryId == session.id) "HIDE DUKO" else "DUKO STATS") }
+                }
+                if (editingContextId == session.id)
+                    DukoContextEditor(session.id)
+                if (dukoSummaryId == session.id)
+                    DukoSummaryPanel(session.id)
                 if (expandedId == session.id) {
                     if (reading) Text("Analyzing samples…", color = Subtle)
                     val overview = details
