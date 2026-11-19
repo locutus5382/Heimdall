@@ -16,13 +16,16 @@ import kotlinx.coroutines.withContext
  * v1 databases migrate in place without deleting a session or a sample.
  * Any unfinished row continues to block START until explicitly completed.
  */
-internal class LocalRecordingStore(context: Context) : RecordingPersistence {
+internal class LocalRecordingStore(
+    context: Context,
+    private val databaseName: String = "heimdall_v1.db"
+) : RecordingPersistence {
     private val app = context.applicationContext
     private val legacyLease = app.getSharedPreferences(
         "heimdall_recorder_lease_v1", Context.MODE_PRIVATE
     )
 
-    private val db = object : SQLiteOpenHelper(app, "heimdall_v1.db", null, 2) {
+    private val db = object : SQLiteOpenHelper(app, databaseName, null, 2) {
         override fun onConfigure(database: SQLiteDatabase) {
             super.onConfigure(database)
             database.setForeignKeyConstraintsEnabled(true)
