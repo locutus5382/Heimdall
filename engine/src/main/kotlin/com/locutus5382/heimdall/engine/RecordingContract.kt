@@ -33,6 +33,9 @@ interface DeviceSampleSource {
     suspend fun read(): DeviceSample
 }
 
+/** A denied append after durable STOP is an expected race, not an I/O failure. */
+enum class AppendOutcome { WRITTEN, STOP_REQUESTED, RETRYABLE_ERROR }
+
 interface RecordingPersistence {
     /** Any incomplete row or unacknowledged lease blocks a fresh START. */
     suspend fun unresolvedSessionId(): Long?
@@ -44,6 +47,11 @@ interface RecordingPersistence {
     /** Creates one session row and its matching recovery lease. */
     suspend fun begin(): Long
     suspend fun append(sessionId: Long, sample: DeviceSample): Boolean
+    /** Adapter for older fake stores. The SQLite implementation overrides
+     * this to distinguish stopped sessions from transient write failures. */
+    suspend fun appendOutcome(sessionId: Long, sample: DeviceSample): AppendOutcome =
+        if (append(sessionId, sample)) AppendOutcome.WRITTEN
+        else AppendOutcome.RETRYABLE_ERROR
     /** Durable terminal intent. A false result forbids finalization. */
     suspend fun persistStop(sessionId: Long): Boolean
     /** Terminal row CAS followed by owner-matched lease cleanup. Retry-safe. */
