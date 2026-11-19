@@ -6,3 +6,9 @@
 -keep class com.locutus5382.heimdall.*Test { *; }
 -keep class com.locutus5382.heimdall.*Test$* { *; }
 -keepattributes RuntimeVisibleAnnotations,RuntimeInvisibleAnnotations,Signature,InnerClasses,EnclosingMethod
+
+# ErrorProne's metadata refers to javac's javax.lang.model types. Android
+# runtime never evaluates the annotation processor; suppress only these
+# unshipped JDK types in the *instrumentation* shrinker.
+-dontwarn javax.lang.model.element.Modifier
+-dontwarn javax.lang.model.element.ElementKind
