@@ -67,8 +67,8 @@ dependencies {
     // are referenced by AndroidX Test's runtime checks but are otherwise absent.
     androidTestImplementation("com.google.errorprone:error_prone_annotations:2.28.0")
     // AndroidJUnitRunner invokes androidx.tracing.Trace before any test runs.
-    // Minified instrumentation must include the implementation explicitly.
-    androidTestImplementation("androidx.tracing:tracing:1.2.0")
+    // Match the runtime-constrained AndroidX Activity 1.9.1 version; test R8\n    // keeps the instrumentation implementation via test-proguard-rules.pro.
+    androidTestImplementation("androidx.tracing:tracing:1.0.0")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }
