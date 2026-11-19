@@ -24,6 +24,7 @@ internal class LocalRecordingStore(
 ) : RecordingPersistence {
     private val app = context.applicationContext
     private val db = HeimdallDatabase.helper(app, databaseName)
+    private val dukoContextStore = DukoSessionContextStore(app)
 
     /** Any open row, including a crashed v1 row, blocks a replacement START. */
     override suspend fun unresolvedSessionId(): Long? = withContext(Dispatchers.IO) {
@@ -71,6 +72,10 @@ internal class LocalRecordingStore(
                 put("status", "RECORDING")
             })
             check(id > 0L) { "SESSION_CREATE_FAILED" }
+            // Snapshot the user's test labels and discovered device topology
+            // in the SAME transaction. Metadata can change later without
+            // modifying sensor samples or the recording ID.
+            dukoContextStore.attachNewSession(database, id)
             database.setTransactionSuccessful()
             id
         } finally {
