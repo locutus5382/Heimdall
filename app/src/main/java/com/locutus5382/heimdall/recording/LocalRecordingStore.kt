@@ -51,6 +51,12 @@ internal class LocalRecordingStore(
     }
 
     override suspend fun begin(): Long = withContext(Dispatchers.IO) {
+        // Observe the device before locking SQLite. No root and no writes to
+        // OEM performance, fan or ClusterTune settings.
+        val device = DukoDeviceProbe(app)
+        val snapshot = runCatching { device.capture() }.getOrNull()
+        val clusterTuneInstalled =
+            runCatching { device.isClusterTuneInstalled() }.getOrNull()
         val database = db.writableDatabase
         database.beginTransaction()
         try {
@@ -71,6 +77,9 @@ internal class LocalRecordingStore(
                 put("status", "RECORDING")
             })
             check(id > 0L) { "SESSION_CREATE_FAILED" }
+            DukoContextStore.captureForNewSession(
+                database, id, snapshot, clusterTuneInstalled
+            )
             database.setTransactionSuccessful()
             id
         } finally {
