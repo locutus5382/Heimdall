@@ -262,11 +262,11 @@ private fun HeimdallDashboard(
             SessionHistoryPanel(
                 refreshKey = (state as? RecorderStatus.Finished)?.sessionId ?: 0L
             )
-            Text("HEIMDALL · PROTOTYPE 0.2", color = Marigold, fontSize = 12.sp,
+            Text("HEIMDALL · STABILITY CANDIDATE 0.3", color = Marigold, fontSize = 12.sp,
                 fontWeight = FontWeight.Bold)
-            Text("Native recording and local session CSV export. " +
-                "HUD and Quick Settings are prototype features under validation; " +
-                "DUKO comparisons and advanced telemetry remain future modules.",
+            Text("One native recorder. Transactional session storage, " +
+                "percentile summaries, local CSV export, Quick Settings and " +
+                "a draggable in-game HUD. Advanced DUKO analytics remain upcoming.",
                 color = Muted, fontSize = 13.sp)
         }
     }
