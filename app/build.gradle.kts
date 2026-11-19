@@ -61,6 +61,9 @@ dependencies {
     debugImplementation(platform("androidx.compose:compose-bom:2024.06.00"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+    // R8 also minifies the instrumented leanDebug test APK. These annotations
+    // are referenced by AndroidX Test's runtime checks but are otherwise absent.
+    androidTestImplementation("com.google.errorprone:error_prone_annotations:2.28.0")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }
