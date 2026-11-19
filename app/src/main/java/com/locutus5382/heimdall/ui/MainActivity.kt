@@ -108,19 +108,20 @@ class MainActivity : ComponentActivity() {
             }
             val notificationPermission = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestPermission()) { granted ->
-                if (granted) requestService(HeimdallRecorderService.START) {
-                    permissionProblem = it
-                } else permissionProblem =
-                    "Notification permission is required for a visible recording service."
+                if (!granted) permissionProblem =
+                    "Recording can continue, but Android may hide the notification drawer entry."
             }
             val start = {
                 permissionProblem = null
+                // POST_NOTIFICATIONS is not a prerequisite for a foreground
+                // service. Keep an accessible in-app STOP even when denied.
+                requestService(HeimdallRecorderService.START) {
+                    permissionProblem = it
+                }
                 if (Build.VERSION.SDK_INT >= 33 &&
                     checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
                     PackageManager.PERMISSION_GRANTED) {
                     notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                } else requestService(HeimdallRecorderService.START) {
-                    permissionProblem = it
                 }
             }
             val stop = {
@@ -189,7 +190,8 @@ private fun HeimdallDashboard(
         else -> "Offline · Read-only · No root"
     }
     val canStart = state is RecorderStatus.Idle ||
-        state is RecorderStatus.Finished
+        state is RecorderStatus.Finished ||
+        (attention != null && attention.sessionId == null)
     val canStop = state is RecorderStatus.Recording ||
         state is RecorderStatus.Stopping ||
         state is RecorderStatus.Saving ||
