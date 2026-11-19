@@ -44,6 +44,10 @@ interface RecordingPersistence {
      * or when the original cannot yet be finalized. Never opens another row.
      */
     suspend fun recoverPendingStop(): Long?
+    /** Seal an abandoned (no active sampler) session as INTERRUPTED, never
+     * inventing samples or replacing its ID; null if ownership is ambiguous.
+     * Legacy test doubles may retain the older explicit review flow. */
+    suspend fun recoverInterruptedSession(): Long? = null
     /** Creates one session row and its matching recovery lease. */
     suspend fun begin(): Long
     suspend fun append(sessionId: Long, sample: DeviceSample): Boolean
