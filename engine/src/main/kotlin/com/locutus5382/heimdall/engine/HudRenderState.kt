@@ -3,7 +3,9 @@ package com.locutus5382.heimdall.engine
 import java.util.Locale
 
 /** Explicit states: never mistake load or a high clock for causal throttling. */
-enum class ThermalIndicatorState { NOMINAL, ELEVATED_TEMP, POLICY_CAP_OBSERVED }
+enum class ThermalIndicatorState {
+    NOMINAL, ELEVATED_TEMP, SUSTAINED_HIGH_BATTERY_TEMP, POLICY_CAP_OBSERVED
+}
 
 data class HudReadout(
     val metric: HudMetric,
@@ -12,6 +14,7 @@ data class HudReadout(
     /** Only metrics with a defensible 0..1 denominator have a micro-gauge. */
     val normalized: Float?,
     val caution: Boolean = false,
+    val alert: Boolean = false,
 )
 
 data class HudRenderState(
@@ -67,7 +70,8 @@ data class HudRenderState(
                             ?.div(100f))
                     HudMetric.BATTERY_TEMP -> HudReadout(key, "BAT TEMP",
                         temperature(sample?.batteryTemperatureC), null,
-                        thermal == ThermalIndicatorState.ELEVATED_TEMP)
+                        thermal == ThermalIndicatorState.ELEVATED_TEMP,
+                        thermal == ThermalIndicatorState.SUSTAINED_HIGH_BATTERY_TEMP)
                     HudMetric.CPU_CLOCK -> HudReadout(key, "CPU CLK",
                         sample?.cpuClockMHz?.takeIf { it > 0L }
                             ?.let { "$it MHz" } ?: "—", null)
