@@ -89,8 +89,8 @@ internal class DukoSessionAnalyzer(
                     if (c.isNull(0)) continue // Legacy row, no valid elapsed clock
                     val t = c.getLong(0)
                     if (t < 0) continue
-                    if (first == null || t < first) first = t
-                    if (last == null || t > last) last = t
+                    if (t < (first ?: Long.MAX_VALUE)) first = t
+                    if (t > (last ?: Long.MIN_VALUE)) last = t
                     for (i in selectedMetrics.indices) {
                         val metric = selectedMetrics[i]
                         val value = if (c.isNull(i + 1)) null
