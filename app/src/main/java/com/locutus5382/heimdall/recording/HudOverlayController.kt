@@ -69,7 +69,8 @@ internal class HudOverlayController(private val app: Context) :
         // cannot restart the REC elapsed timer or create a second ring buffer.
         if (activeSession != recording.sessionId) {
             activeSession = recording.sessionId
-            sessionObservedStartMs = SystemClock.elapsedRealtime()
+            sessionObservedStartMs =
+                recording.startedElapsedMs ?: SystemClock.elapsedRealtime()
             hotSinceMs = 0L
             stopSent = false
             history.clear()
