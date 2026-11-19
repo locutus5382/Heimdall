@@ -254,6 +254,21 @@ private fun HeimdallDashboard(
                     color = Marigold
                 )
             }
+            if (recording != null) {
+                var editingLiveTestContext by remember(recording.sessionId) {
+                    mutableStateOf(false)
+                }
+                OutlinedButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { editingLiveTestContext = !editingLiveTestContext }
+                ) {
+                    Text(
+                        if (editingLiveTestContext) "HIDE SESSION TEST SETTINGS"
+                        else "TAG GAME · DRIVER · PERFORMANCE · FAN · CLUSTERTUNE"
+                    )
+                }
+                if (editingLiveTestContext) DukoContextEditor(recording.sessionId)
+            }
             HudStudioPanel()
             Text("Quick Settings: add Heimdall Record in Android's tile editor.",
                 color = Muted, fontSize = 12.sp)
