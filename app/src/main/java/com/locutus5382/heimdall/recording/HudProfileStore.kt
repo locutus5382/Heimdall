@@ -41,11 +41,23 @@ class HudProfileStore(context: Context) {
     }
 
     fun enabled() = prefs.getBoolean("hud_enabled", false)
-    fun x() = prefs.getInt("hud_x", 16)
-    fun y() = prefs.getInt("hud_y", 84)
 
-    /** Position is stored in dp, so a saved position survives density changes. */
+    /**
+     * v0.3 stored positions in raw pixels. v0.4 stores them in dp so a
+     * migration does not fling the HUD off-screen on high-density panels.
+     */
+    private fun oldPixelsAsDp(oldKey: String, fallback: Int): Int {
+        if (!prefs.contains(oldKey)) return fallback
+        val pixels = prefs.getInt(oldKey, fallback)
+        return (pixels / contextDensity + .5f).toInt()
+    }
+
+    private val contextDensity: Float = context.resources.displayMetrics.density
+    fun x() = prefs.getInt("hud_x_dp_v2", oldPixelsAsDp("hud_x", 16))
+    fun y() = prefs.getInt("hud_y_dp_v2", oldPixelsAsDp("hud_y", 84))
+
     fun savePosition(xDp: Int, yDp: Int) {
-        prefs.edit().putInt("hud_x", xDp).putInt("hud_y", yDp).apply()
+        prefs.edit().putInt("hud_x_dp_v2", xDp)
+            .putInt("hud_y_dp_v2", yDp).apply()
     }
 }
