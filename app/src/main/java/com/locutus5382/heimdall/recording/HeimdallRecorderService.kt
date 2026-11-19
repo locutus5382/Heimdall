@@ -99,19 +99,44 @@ class HeimdallRecorderService : Service() {
             return START_NOT_STICKY
         }
         scope.launch {
-            val success = when (action) {
-                START -> engine.start()
-                STOP -> engine.stop()
-                else -> false
+            // Commands are serialized by the engine. The Service must not
+            // remain foreground when no sampler is active (failed START,
+            // finished STOP or unresolved crashed session).
+            val success = try {
+                when (action) {
+                    START -> engine.start()
+                    STOP -> engine.stop()
+                    else -> false
+                }
+            } catch (_: Exception) {
+                RecorderStatusHub.publish(
+                    RecorderStatus.NeedsAttention(null, "COMMAND_FAILED"))
+                false
             }
             val state = engine.status.value
-            val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-            if (state is RecorderStatus.Finished) {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf(startId)
-            } else {
-                manager.notify(NOTIFICATION_ID,
-                    notification(if (success) "Recording" else statusMessage(state)))
+            when (state) {
+                is RecorderStatus.Recording -> {
+                    (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+                        .notify(NOTIFICATION_ID,
+                            notification(statusMessage(state)))
+                }
+                is RecorderStatus.Finished, RecorderStatus.Idle,
+                is RecorderStatus.NeedsAttention -> {
+                    // A later command may already be enqueued. Only the last
+                    // startId may stop this Service and remove its notification.
+                    if (stopSelfResult(startId)) {
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                    } else if (!success) {
+                        // A newer command will set its own status; do not
+                        // report a rejected START as a successful recording.
+                        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+                            .notify(NOTIFICATION_ID, notification(statusMessage(state)))
+                    }
+                }
+                else -> {
+                    (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+                        .notify(NOTIFICATION_ID, notification(statusMessage(state)))
+                }
             }
         }
         return START_NOT_STICKY
