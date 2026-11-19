@@ -1,0 +1,133 @@
+package com.locutus5382.heimdall.recording
+
+import android.content.Context
+import android.database.sqlite.SQLiteDatabase
+import android.database.sqlite.SQLiteOpenHelper
+
+/**
+ * One helper per database name, shared by the recorder and read-only screens.
+ * SQLite WAL permits exports/diagnostics to read a stable snapshot while the
+ * foreground service appends samples. Never rename the existing on-disk file.
+ */
+internal object HeimdallDatabase {
+    const val NAME = "heimdall_v1.db"
+    private const val VERSION = 3
+    private val instances = mutableMapOf<String, SQLiteOpenHelper>()
+
+    @Synchronized
+    fun helper(context: Context, filename: String = NAME): SQLiteOpenHelper {
+        val app = context.applicationContext
+        val key = app.packageName + ":" + filename
+        return instances.getOrPut(key) {
+            object : SQLiteOpenHelper(app, filename, null, VERSION) {
+                init { setWriteAheadLoggingEnabled(true) }
+
+                override fun onConfigure(db: SQLiteDatabase) {
+                    super.onConfigure(db)
+                    db.setForeignKeyConstraintsEnabled(true)
+                    db.execSQL("PRAGMA busy_timeout=5000")
+                    db.execSQL("PRAGMA synchronous=NORMAL")
+                }
+
+                override fun onCreate(db: SQLiteDatabase) {
+                    db.execSQL("""
+                        CREATE TABLE sessions (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            started_at_ms INTEGER NOT NULL,
+                            started_elapsed_ms INTEGER,
+                            ended_at_ms INTEGER,
+                            stop_requested_at_ms INTEGER,
+                            status TEXT NOT NULL
+                              CHECK(status IN ('RECORDING','COMPLETED')),
+                            end_reason TEXT,
+                            sample_count INTEGER NOT NULL DEFAULT 0,
+                            device_model TEXT,
+                            android_sdk INTEGER,
+                            app_version TEXT,
+                            sample_interval_ms INTEGER NOT NULL DEFAULT 2000,
+                            capability_summary TEXT
+                        )
+                    """.trimIndent())
+                    db.execSQL("""
+                        CREATE TABLE samples (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            session_id INTEGER NOT NULL,
+                            time_ms INTEGER NOT NULL,
+                            elapsed_ms INTEGER,
+                            cpu_load_pct REAL,
+                            battery_pct INTEGER,
+                            battery_temp_c REAL,
+                            free_memory_mib INTEGER,
+                            cpu_clock_mhz INTEGER,
+                            gpu_clock_mhz INTEGER,
+                            thermal_status INTEGER,
+                            thermal_headroom REAL,
+                            battery_current_ua INTEGER,
+                            battery_voltage_mv INTEGER,
+                            battery_plugged INTEGER,
+                            gpu_load_pct REAL,
+                            FOREIGN KEY(session_id) REFERENCES sessions(id)
+                        )
+                    """.trimIndent())
+                    db.execSQL("CREATE INDEX samples_session_idx ON samples(session_id,id)")
+                    db.execSQL("CREATE INDEX sessions_state_idx ON sessions(status,id)")
+                }
+
+                override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+                    require(oldVersion in 1..2 && newVersion == 3) {
+                        "UNSUPPORTED_MIGRATION_${oldVersion}_${newVersion}"
+                    }
+                    if (oldVersion == 1) {
+                        db.execSQL("ALTER TABLE sessions ADD COLUMN stop_requested_at_ms INTEGER")
+                        db.execSQL("CREATE INDEX sessions_state_idx ON sessions(status,id)")
+                        val legacy = app.getSharedPreferences(
+                            "heimdall_recorder_lease_v1", Context.MODE_PRIVATE
+                        )
+                        if (legacy.getBoolean("active", false) &&
+                            legacy.getBoolean("stop_requested", false)) {
+                            val oldId = legacy.getLong("id", -1L)
+                            if (oldId > 0L) {
+                                db.execSQL(
+                                    """UPDATE sessions SET stop_requested_at_ms=?
+                                       WHERE id=? AND status='RECORDING'
+                                       AND stop_requested_at_ms IS NULL""",
+                                    arrayOf(System.currentTimeMillis(), oldId)
+                                )
+                            }
+                        }
+                    }
+                    // Additive v3 upgrade only; neither historical samples nor
+                    // v1/v2 session IDs are rebuilt or deleted.
+                    listOf(
+                        "started_elapsed_ms INTEGER",
+                        "end_reason TEXT",
+                        "sample_count INTEGER NOT NULL DEFAULT 0",
+                        "device_model TEXT",
+                        "android_sdk INTEGER",
+                        "app_version TEXT",
+                        "sample_interval_ms INTEGER NOT NULL DEFAULT 2000",
+                        "capability_summary TEXT",
+                    ).forEach { db.execSQL("ALTER TABLE sessions ADD COLUMN $it") }
+                    listOf(
+                        "elapsed_ms INTEGER",
+                        "thermal_status INTEGER",
+                        "thermal_headroom REAL",
+                        "battery_current_ua INTEGER",
+                        "battery_voltage_mv INTEGER",
+                        "battery_plugged INTEGER",
+                        "gpu_load_pct REAL",
+                    ).forEach { db.execSQL("ALTER TABLE samples ADD COLUMN $it") }
+                    db.execSQL(
+                        """UPDATE sessions SET sample_count =
+                           (SELECT COUNT(*) FROM samples WHERE session_id=sessions.id)
+                           WHERE status='COMPLETED'"""
+                    )
+                    db.execSQL(
+                        """UPDATE sessions SET end_reason='COMPLETED'
+                           WHERE status='COMPLETED' AND end_reason IS NULL"""
+                    )
+                }
+            }
+        }
+    }
+}
