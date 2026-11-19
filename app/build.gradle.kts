@@ -9,8 +9,8 @@ android {
         applicationId = "com.locutus5382.heimdall"
         minSdk = 31
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.3.1-odin-candidate"
+        versionCode = 5
+        versionName = "0.4.0-hud2-alpha"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildTypes {
