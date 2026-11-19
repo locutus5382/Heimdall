@@ -12,6 +12,9 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.locutus5382.heimdall.engine.RecorderStatus
 import com.locutus5382.heimdall.recording.HeimdallRecorderService
 import com.locutus5382.heimdall.recording.RecorderStatusHub
+import com.locutus5382.heimdall.recording.SessionArchive
+import kotlinx.coroutines.runBlocking
+import java.io.ByteArrayOutputStream
 import com.locutus5382.heimdall.ui.MainActivity
 import org.junit.Assert.*
 import org.junit.Rule
@@ -81,6 +84,19 @@ class RecordingRoundTripTest {
         assertTrue(finished.samples > 0L)
         compose.waitForIdle()
         compose.onNodeWithText("Session saved").assertExists()
+
+        // Verify prototype history and CSV use the same persisted source rows.
+        val archive = SessionArchive(app)
+        val savedSessions = runBlocking { archive.recent() }
+        assertEquals(1, savedSessions.size)
+        assertEquals(originalId, savedSessions.single().id)
+        assertEquals(finished.samples, savedSessions.single().samples)
+        val bytes = ByteArrayOutputStream()
+        val csvRows = runBlocking { archive.exportCsv(originalId, bytes) }
+        assertEquals(finished.samples, csvRows)
+        val csv = bytes.toString("UTF-8")
+        assertTrue(csv.startsWith("sample_id,time_ms,cpu_load_pct"))
+        assertEquals(csvRows.toInt() + 1, csv.lines().filter { it.isNotEmpty() }.size)
 
         val database = android.database.sqlite.SQLiteDatabase.openDatabase(
             dbFile.absolutePath, null,
