@@ -10,6 +10,7 @@ import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.animation.AlphaAnimation
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -93,8 +94,13 @@ internal class HudOverlayController(private val app: Context) {
             elevation = dp(7).toFloat()
         }
         pill.addView(label("HEIMDALL", marigold, 11f, true))
-        dot = label("●", Color.rgb(255, 73, 82), 18f)
-            .also { pill.addView(it) }
+        dot = label("●", Color.rgb(255, 73, 82), 18f).apply {
+            startAnimation(AlphaAnimation(.35f, 1f).apply {
+                duration = 650
+                repeatCount = AlphaAnimation.INFINITE
+                repeatMode = AlphaAnimation.REVERSE
+            })
+        }.also { pill.addView(it) }
         cpu = label("CPU —", ice, 12f, true).also { pill.addView(it) }
         gpu = label("GPU —", ice, 12f, true).also { pill.addView(it) }
         battery = label("BAT —", ice, 12f, true).also { pill.addView(it) }
@@ -114,6 +120,10 @@ internal class HudOverlayController(private val app: Context) {
                 setStroke(dp(1), marigold)
             }
             setOnClickListener {
+                // Disable repeated taps until the one authoritative recorder
+                // has acknowledged STOP or Android rejects the command.
+                isEnabled = false
+                text = "SAVING"
                 // Dispatch to the same foreground Service as UI and QS Tile.
                 // No HUD-owned engine, database or second sampler.
                 try {
@@ -121,6 +131,8 @@ internal class HudOverlayController(private val app: Context) {
                         Intent(app, HeimdallRecorderService::class.java)
                             .setAction(HeimdallRecorderService.STOP))
                 } catch (e: Exception) {
+                    isEnabled = true
+                    text = "STOP"
                     Log.w("HeimdallHUD", "STOP dispatch refused", e)
                 }
             }
@@ -191,6 +203,7 @@ internal class HudOverlayController(private val app: Context) {
     fun dismiss() {
         val current = view ?: return
         view = null
+        dot?.clearAnimation()
         dot = null
         cpu = null
         battery = null
