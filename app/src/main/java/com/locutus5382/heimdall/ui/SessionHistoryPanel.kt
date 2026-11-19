@@ -94,6 +94,10 @@ fun SessionHistoryPanel(refreshKey: Long) {
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text("SESSION #${session.id}", color = Amber)
+                if (session.reason == "INTERRUPTED") {
+                    Text("INTERRUPTED · Partial data retained",
+                        color = Color(0xFFF16B78))
+                }
                 Text(
                     "${session.samples} samples · ${(session.endedAtMs - session.startedAtMs).coerceAtLeast(0L) / 1000L}s",
                     color = Ink

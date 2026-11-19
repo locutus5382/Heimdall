@@ -34,6 +34,9 @@ class HeimdallRecorderService : Service() {
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var foregroundLive = false
+    private var commandInFlight = false
     private lateinit var engine: NativeRecorderEngine
     private lateinit var hud: HudOverlayController
 
@@ -49,12 +52,37 @@ class HeimdallRecorderService : Service() {
                 })
         engine = NativeRecorderEngine(
             AndroidTelemetrySource(applicationContext),
-            LocalRecordingStore(applicationContext), scope)
+            LocalRecordingStore(applicationContext), engineScope)
         scope.launch {
             var previousPhase: String? = null
             engine.status.collect { state ->
                 RecorderStatusHub.publish(state)
                 hud.render(state)
+                if (foregroundLive) {
+                    val manager = getSystemService(NOTIFICATION_SERVICE)
+                        as NotificationManager
+                    when (state) {
+                        is RecorderStatus.Recording, is RecorderStatus.Stopping,
+                        is RecorderStatus.Saving, RecorderStatus.Preparing ->
+                            manager.notify(NOTIFICATION_ID,
+                                notification(statusMessage(state),
+                                    if (state is RecorderStatus.Recording)
+                                        "STOP" else "STOP / Retry"))
+                        is RecorderStatus.NeedsAttention -> {
+                            foregroundLive = false
+                            stopForeground(STOP_FOREGROUND_REMOVE)
+                            manager.notify(NOTIFICATION_ID,
+                                notification("Recording interrupted: ${state.code}",
+                                    ongoing = false,
+                                    actionName = if (state.sessionId == null) null
+                                        else "RETRY STOP"))
+                            // A spontaneous sampler failure has no command to
+                            // perform foreground cleanup on its behalf.
+                            if (!commandInFlight) stopSelf()
+                        }
+                        else -> Unit // Terminal action handles stopSelfResult.
+                    }
+                }
                 val phase = state.javaClass.simpleName
                 if (phase != previousPhase) {
                     previousPhase = phase
@@ -92,13 +120,14 @@ class HeimdallRecorderService : Service() {
         try {
             // Foreground BEFORE any potentially slow SQLite or sensor work.
             startForeground(NOTIFICATION_ID, notification("Preparing recorder"))
+            foregroundLive = true
         } catch (_: Exception) {
-            RecorderStatusHub.publish(
-                RecorderStatus.NeedsAttention(null, "FOREGROUND_NOT_ALLOWED"))
+            engine.reportStartFailure("FOREGROUND_NOT_ALLOWED")
             stopSelf(startId)
             return START_NOT_STICKY
         }
         scope.launch {
+            commandInFlight = true
             // Commands are serialized by the engine. The Service must not
             // remain foreground when no sampler is active (failed START,
             // finished STOP or unresolved crashed session).
@@ -109,8 +138,7 @@ class HeimdallRecorderService : Service() {
                     else -> false
                 }
             } catch (_: Exception) {
-                RecorderStatusHub.publish(
-                    RecorderStatus.NeedsAttention(null, "COMMAND_FAILED"))
+                engine.reportStartFailure("COMMAND_FAILED")
                 false
             }
             val state = engine.status.value
@@ -138,6 +166,7 @@ class HeimdallRecorderService : Service() {
                         .notify(NOTIFICATION_ID, notification(statusMessage(state)))
                 }
             }
+            commandInFlight = false
         }
         return START_NOT_STICKY
     }
@@ -150,7 +179,11 @@ class HeimdallRecorderService : Service() {
         else -> "Preparing recorder"
     }
 
-    private fun notification(message: String): Notification {
+    private fun notification(
+        message: String,
+        actionName: String? = "STOP",
+        ongoing: Boolean = true
+    ): Notification {
         val stop = Intent(this, HeimdallRecorderService::class.java).setAction(STOP)
         val stopIntent = PendingIntent.getService(this, 2, stop,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
@@ -161,14 +194,17 @@ class HeimdallRecorderService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         return Notification.Builder(this, CHANNEL_ID)
+            .setCategory(Notification.CATEGORY_SERVICE)
             .setContentTitle("HEIMDALL · Device telemetry")
             .setContentText(message)
             .setContentIntent(dashboard)
-            .setSmallIcon(android.R.drawable.ic_media_play)
-            .setOngoing(true)
+            .setSmallIcon(R.drawable.ic_heimdall_notification)
+            .setOngoing(ongoing)
             .setOnlyAlertOnce(true)
-            .addAction(Notification.Action.Builder(
-                android.R.drawable.ic_media_pause, "STOP / Retry", stopIntent).build())
+            .apply {
+                if (actionName != null) addAction(Notification.Action.Builder(
+                    android.R.drawable.ic_media_pause, actionName, stopIntent).build())
+            }
             .build()
     }
 
@@ -187,6 +223,7 @@ class HeimdallRecorderService : Service() {
         val state = engine.status.value
         hud.dispose()
         scope.cancel()
+        engineScope.cancel()
         val interrupted = when (state) {
             is RecorderStatus.Recording -> state.sessionId
             is RecorderStatus.Stopping -> state.sessionId

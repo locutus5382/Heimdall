@@ -1,6 +1,8 @@
 package com.locutus5382.heimdall.recording
 
 import android.graphics.Paint
+import android.graphics.Typeface
+import com.locutus5382.heimdall.engine.HudMetric
 import android.graphics.RectF
 import com.locutus5382.heimdall.engine.HudLayout
 import com.locutus5382.heimdall.engine.HudProfile
@@ -37,15 +39,34 @@ internal data class HudGeometry(
  */
 internal class HudLayoutEngine(private val fontFactor: Float = 1f) {
     private val measure = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val labelFace = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+    private val numberFace = Typeface.MONOSPACE
 
-    private fun textWidth(value: String, sp: Float): Float {
+    private fun textWidth(value: String, sp: Float, numeric: Boolean = false): Float {
         measure.textSize = sp * fontFactor
+        measure.typeface = if (numeric) numberFace else labelFace
         return measure.measureText(value)
     }
 
+    // Stable width budgets: a 99→100% transition must never resize the HUD.
+    // The measured current value may exceed the budget, but never gets clipped.
+    private fun representative(metric: HudMetric): String = when (metric) {
+        HudMetric.CPU_LOAD, HudMetric.GPU_LOAD, HudMetric.BATTERY -> "100%"
+        HudMetric.BATTERY_TEMP, HudMetric.CPU_TEMP, HudMetric.GPU_TEMP -> "100.0°C"
+        HudMetric.CPU_CLOCK, HudMetric.GPU_CLOCK -> "9999 MHz"
+        HudMetric.FREE_MEMORY -> "99999 MiB"
+        HudMetric.THERMAL_HEADROOM -> "1.99"
+        HudMetric.BATTERY_CURRENT -> "-15000 mA"
+    }
+
     private fun slotWidth(readout: HudReadout, valueSp: Float): Float =
-        max(textWidth(readout.label, 10f),
-            textWidth(readout.value, valueSp)) + 22f
+        max(
+            textWidth(readout.label, 10f),
+            max(
+                textWidth(representative(readout.metric), valueSp, numeric = true),
+                textWidth(readout.value, valueSp, numeric = true)
+            )
+        ) + 22f
 
     fun calculate(
         profile: HudProfile,
@@ -67,7 +88,7 @@ internal class HudLayoutEngine(private val fontFactor: Float = 1f) {
             HudLayout.PILL, HudLayout.RIBBON -> {
                 val ribbon = profile.layout == HudLayout.RIBBON
                 val captionWidth = max(
-                    textWidth("● REC " + state.elapsedLabel, 12f) + 16f,
+                    textWidth("● REC 99:59:59", 12f, numeric = true) + 16f,
                     if (ribbon) 94f else 107f
                 )
                 val fieldSize = if (ribbon) 14f else 14.5f

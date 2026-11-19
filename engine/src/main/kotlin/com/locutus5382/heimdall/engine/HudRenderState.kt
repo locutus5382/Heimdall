@@ -78,6 +78,23 @@ data class HudRenderState(
                     HudMetric.FREE_MEMORY -> HudReadout(key, "RAM FREE",
                         sample?.availableMemoryMiB?.takeIf { it >= 0L }
                             ?.let { "$it MiB" } ?: "—", null)
+                    HudMetric.CPU_TEMP -> HudReadout(key, "CPU TEMP",
+                        temperature(sample?.cpuTemperatureC), null)
+                    HudMetric.GPU_TEMP -> HudReadout(key, "GPU TEMP",
+                        temperature(sample?.gpuTemperatureC), null)
+                    HudMetric.GPU_LOAD -> HudReadout(key, "GPU LOAD",
+                        pct(sample?.gpuLoadPercent),
+                        sample?.gpuLoadPercent?.takeIf {
+                            it.isFinite() && it in 0.0..100.0
+                        }?.div(100.0)?.toFloat())
+                    HudMetric.THERMAL_HEADROOM -> HudReadout(key, "THERM H",
+                        sample?.thermalHeadroom?.takeIf { it.isFinite() && it in 0.0..2.0 }
+                            ?.let { String.format(Locale.US, "%.2f", it) } ?: "—",
+                        null)
+                    HudMetric.BATTERY_CURRENT -> HudReadout(key, "BAT I",
+                        sample?.batteryCurrentUa?.let {
+                            String.format(Locale.US, "%.0f mA", it / 1000.0)
+                        } ?: "—", null)
                 }
             }
             return HudRenderState(sessionId, time,

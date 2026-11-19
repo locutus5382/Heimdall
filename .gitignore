@@ -7,7 +7,10 @@ local.properties
 *.apk
 *.aab
 captures/
+# macOS source-archive extras
 .DS_Store
+._*
+__MACOSX/
 # Signing and secrets never belong in Git
 *.keystore
 *.jks

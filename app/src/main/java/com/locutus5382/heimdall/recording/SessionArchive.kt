@@ -17,6 +17,7 @@ data class SavedSession(
     val startedAtMs: Long,
     val endedAtMs: Long,
     val samples: Long,
+    val reason: String = "COMPLETED",
 )
 
 data class SessionOverview(
@@ -29,13 +30,14 @@ data class SessionOverview(
 )
 
 class SessionArchive(context: Context) {
-    private val path = context.applicationContext.getDatabasePath("heimdall_v1.db")
+    private val app = context.applicationContext
+    private val path = app.getDatabasePath(HeimdallDatabase.NAME)
+    private val helper by lazy { HeimdallDatabase.helper(app) }
 
     /** Read-only safety check used by Quick Settings after process recreation. */
     suspend fun unfinishedSessionId(): Long? = withContext(Dispatchers.IO) {
         if (!path.isFile) return@withContext null
-        SQLiteDatabase.openDatabase(path.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
-            .use { database ->
+        run { val database = helper.readableDatabase
                 database.rawQuery(
                     "SELECT id FROM sessions WHERE status='RECORDING' ORDER BY id LIMIT 1",
                     null
@@ -48,15 +50,13 @@ class SessionArchive(context: Context) {
     suspend fun recent(limit: Int = 20): List<SavedSession> = withContext(Dispatchers.IO) {
         if (!path.isFile) return@withContext emptyList()
         val count = limit.coerceIn(1, 100)
-        SQLiteDatabase.openDatabase(path.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
-            .use { database ->
+        run { val database = helper.readableDatabase
                 database.rawQuery(
                     """
-                    SELECT s.id, s.started_at_ms, s.ended_at_ms, COUNT(p.id)
+                    SELECT s.id, s.started_at_ms, s.ended_at_ms,
+                           s.sample_count, s.end_reason
                     FROM sessions s
-                    LEFT JOIN samples p ON p.session_id=s.id
                     WHERE s.status='COMPLETED' AND s.ended_at_ms IS NOT NULL
-                    GROUP BY s.id, s.started_at_ms, s.ended_at_ms
                     ORDER BY s.id DESC LIMIT $count
                     """.trimIndent(), null
                 ).use { c ->
@@ -66,7 +66,8 @@ class SessionArchive(context: Context) {
                                 id = c.getLong(0),
                                 startedAtMs = c.getLong(1),
                                 endedAtMs = c.getLong(2),
-                                samples = c.getLong(3)
+                                samples = c.getLong(3),
+                                reason = c.getString(4) ?: "COMPLETED"
                             )
                         )
                     }
@@ -78,8 +79,7 @@ class SessionArchive(context: Context) {
     suspend fun overview(sessionId: Long): SessionOverview = withContext(Dispatchers.IO) {
         require(sessionId > 0L)
         check(path.isFile) { "NO_DATABASE" }
-        SQLiteDatabase.openDatabase(path.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
-            .use { database ->
+        run { val database = helper.readableDatabase
                 val completed = database.rawQuery(
                     "SELECT id FROM sessions WHERE id=? AND status='COMPLETED' LIMIT 1",
                     arrayOf(sessionId.toString())
@@ -125,8 +125,7 @@ class SessionArchive(context: Context) {
         withContext(Dispatchers.IO) {
             require(sessionId > 0L)
             check(path.isFile) { "NO_DATABASE" }
-            SQLiteDatabase.openDatabase(path.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
-                .use { database ->
+            run { val database = helper.readableDatabase
                     val complete = database.rawQuery(
                         "SELECT id FROM sessions WHERE id=? AND status='COMPLETED' LIMIT 1",
                         arrayOf(sessionId.toString())
@@ -134,11 +133,19 @@ class SessionArchive(context: Context) {
                     check(complete) { "SESSION_NOT_COMPLETED" }
                     var written = 0L
                     destination.bufferedWriter(StandardCharsets.UTF_8).use { writer ->
-                        writer.write("sample_id,time_ms,cpu_load_pct,battery_pct,battery_temp_c,free_memory_mib,cpu_clock_mhz,gpu_clock_mhz\n")
+                        writer.write(
+                            "sample_id,time_ms,cpu_load_pct,battery_pct,battery_temp_c,free_memory_mib,cpu_clock_mhz,gpu_clock_mhz," +
+                            "elapsed_ms,thermal_status,thermal_headroom,battery_current_ua,battery_voltage_mv,battery_plugged,gpu_load_pct," +
+                            "cpu_temp_c,gpu_temp_c,cpu_policy_clocks,cpu_policy_limits,cpu_policy_hardware_max\n"
+                        )
                         database.rawQuery(
                             """
                             SELECT id, time_ms, cpu_load_pct, battery_pct, battery_temp_c,
-                                   free_memory_mib, cpu_clock_mhz, gpu_clock_mhz
+                                   free_memory_mib, cpu_clock_mhz, gpu_clock_mhz,
+                                   elapsed_ms, thermal_status, thermal_headroom,
+                                   battery_current_ua, battery_voltage_mv,
+                                   battery_plugged, gpu_load_pct, cpu_temp_c, gpu_temp_c,
+                                   cpu_policy_clocks, cpu_policy_limits, cpu_policy_hardware_max
                             FROM samples WHERE session_id=? ORDER BY id
                             """.trimIndent(),
                             arrayOf(sessionId.toString())

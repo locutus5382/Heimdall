@@ -107,7 +107,7 @@ internal class HeimdallCanvasView(
         val previous = this.state
         val relayout = this.profile.layout != valid.layout ||
             this.profile.scale != valid.scale ||
-            previous.readouts != newState.readouts ||
+            previous.readouts.map { it.metric } != newState.readouts.map { it.metric } ||
             this.profile.metrics != valid.metrics ||
             this.profile.locked != valid.locked
         this.profile = valid

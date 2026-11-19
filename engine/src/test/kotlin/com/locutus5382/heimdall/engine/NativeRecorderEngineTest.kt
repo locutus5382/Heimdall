@@ -54,9 +54,10 @@ class NativeRecorderEngineTest {
     private class FakeSource : DeviceSampleSource {
         var calls = 0
         var fail = false
+        var transientFailures = 0
         override suspend fun read(): DeviceSample {
             calls++
-            if (fail) throw IllegalStateException("no sensor")
+            if (fail || calls <= transientFailures) throw IllegalStateException("no sensor")
             return DeviceSample(1L, 17.0, 60, 31.0, 2200, 1600, null)
         }
     }
@@ -147,6 +148,39 @@ class NativeRecorderEngineTest {
             assertEquals(0, store.finishes)
             assertTrue(e.stop())
             assertNull(store.active)
+        } finally { scope.cancel() }
+    }
+
+    @Test fun intermittentSensorFailuresRecoverWithoutReplacingSession() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val store = FakeStore()
+            val e = NativeRecorderEngine(
+                FakeSource().apply { transientFailures = 3 }, store, scope,
+                intervalMs = 1_000L, retryDelayMs = 60L
+            )
+            assertTrue(e.start())
+            await { store.writes > 0 }
+            val active = e.status.value as RecorderStatus.Recording
+            assertEquals(7L, active.sessionId)
+            assertEquals(1L, active.persistedSamples)
+            assertTrue(e.stop())
+            assertNull(store.active)
+            assertEquals(1, store.finishes)
+        } finally { scope.cancel() }
+    }
+
+    @Test fun recoverableNoSessionErrorCanRetryStart() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val store = FakeStore()
+            val e = NativeRecorderEngine(FakeSource(), store, scope, 1_000L)
+            e.reportStartFailure("FOREGROUND_NOT_ALLOWED")
+            assertEquals(null, (e.status.value as RecorderStatus.NeedsAttention).sessionId)
+            assertTrue(e.start())
+            await { store.writes > 0L }
+            assertTrue(e.stop())
+            assertEquals(1, store.finishes)
         } finally { scope.cancel() }
     }
 

@@ -50,7 +50,7 @@ jobs:
       - name: Upload standalone debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: HEIMDALL-v0.5.0-m4-debug
+          name: HEIMDALL-v0.6.0-h1-h4-debug
           if-no-files-found: error
           path: app/build/outputs/apk/debug/app-debug.apk
       - name: Measure baseline and R8-optimized APK sizes
@@ -70,7 +70,7 @@ jobs:
       - name: Upload optimized installable QA APK
         uses: actions/upload-artifact@v4
         with:
-          name: HEIMDALL-v0.5.0-m4-lean-debug
+          name: HEIMDALL-v0.6.0-h1-h4-lean-debug
           if-no-files-found: error
           path: app/build/outputs/apk/leanDebug/app-leanDebug.apk
       - name: Upload APK size comparison
@@ -123,7 +123,11 @@ jobs:
           disable-animations: true
           emulator-boot-timeout: 900
           script: |
-            gradle :app:connectedDebugAndroidTest :app:assembleLeanDebug --no-daemon --stacktrace
+            # Baseline unshrunk instrumentation verifies the normal developer build.
+            gradle :app:connectedDebugAndroidTest --no-daemon --stacktrace
+            # Mapped to the optimized app, not a debug APK installed afterward.
+            # R8 errors in Service/SQLite/reflection must fail the quality gate.
+            gradle :app:connectedAndroidTest -PheimdallAndroidTestBuildType=leanDebug --no-daemon --stacktrace
             adb install -r app/build/outputs/apk/leanDebug/app-leanDebug.apk
             adb shell am force-stop com.locutus5382.heimdall
             adb shell am start -n com.locutus5382.heimdall/.ui.MainActivity
