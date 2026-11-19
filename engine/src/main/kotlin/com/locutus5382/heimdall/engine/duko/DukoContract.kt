@@ -61,7 +61,7 @@ data class DukoObservation(
             value != null && metric.accepts(value)
 }
 
-/** Selected interval is half-open: [startMs, endMs). */
+/** Selected interval includes both endpoint readings for interval integration. */
 data class DukoWindow(val startMs: Long, val endMs: Long) {
     init { require(startMs >= 0L && endMs > startMs) }
     val durationMs: Long get() = endMs - startMs
