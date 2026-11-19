@@ -139,6 +139,7 @@ fun SessionHistoryPanel(refreshKey: Long) {
                     ) { Text("EXPORT CSV") }
                 }
                 if (expandedId == session.id) {
+                    DukoTagEditor(sessionId = session.id)
                     if (reading) Text("Analyzing samples…", color = Subtle)
                     val overview = details
                     if (overview != null) {
