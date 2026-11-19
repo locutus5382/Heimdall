@@ -27,6 +27,7 @@ class HeimdallRecorderService : Service() {
     companion object {
         const val START = "com.locutus5382.heimdall.action.START"
         const val STOP = "com.locutus5382.heimdall.action.STOP"
+        const val INSPECT = "com.locutus5382.heimdall.action.INSPECT"
         private const val NOTIFICATION_ID = 1701
         private const val CHANNEL_ID = "heimdall_recorder"
     }
@@ -52,11 +53,23 @@ class HeimdallRecorderService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
+        if (action == INSPECT) {
+            // Launched by a visible Activity as a regular (non-FGS) service.
+            // Never create a recording or show a fake recording notification.
+            scope.launch {
+                val restored = engine.inspectExisting()
+                if (restored !is RecorderStatus.Recording &&
+                    restored !is RecorderStatus.Preparing &&
+                    restored !is RecorderStatus.Stopping &&
+                    restored !is RecorderStatus.Saving) {
+                    // Never stop a newer START command queued after this inspect.
+                    stopSelfResult(startId)
+                }
+            }
+            return START_NOT_STICKY
+        }
         if (action != START && action != STOP) {
-            // Android's automatic sticky restart is not authorized to create
-            // a replacement session. User can STOP an unfinished original.
-            scope.launch { engine.inspectExisting() }
-            stopSelf(startId)
+            stopSelfResult(startId)
             return START_NOT_STICKY
         }
 
