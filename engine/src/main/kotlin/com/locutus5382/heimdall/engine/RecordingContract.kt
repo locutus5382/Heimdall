@@ -12,6 +12,14 @@ data class DeviceSample(
     val availableMemoryMiB: Long?,
     val cpuClockMHz: Long?,
     val gpuClockMHz: Long?,
+    // Added in v3; null is the correct representation for unsupported sources.
+    val observedElapsedMs: Long? = null,
+    val thermalStatus: Int? = null,
+    val thermalHeadroom: Double? = null,
+    val batteryCurrentUa: Long? = null,
+    val batteryVoltageMv: Int? = null,
+    val batteryPlugged: Boolean? = null,
+    val gpuLoadPercent: Double? = null,
 )
 
 sealed interface RecorderStatus {
@@ -24,7 +32,10 @@ sealed interface RecorderStatus {
     ) : RecorderStatus
     data class Stopping(val sessionId: Long) : RecorderStatus
     data class Saving(val sessionId: Long) : RecorderStatus
-    data class Finished(val sessionId: Long, val samples: Long) : RecorderStatus
+    data class Finished(
+        val sessionId: Long, val samples: Long,
+        val reason: String = "COMPLETED"
+    ) : RecorderStatus
     data class NeedsAttention(val sessionId: Long?, val code: String) : RecorderStatus
 }
 
