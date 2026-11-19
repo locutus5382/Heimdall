@@ -5,6 +5,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import com.locutus5382.heimdall.engine.DeviceSample
+import com.locutus5382.heimdall.engine.AppendOutcome
 import com.locutus5382.heimdall.engine.RecordingPersistence
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -128,33 +129,37 @@ internal class LocalRecordingStore(
     }
 
     override suspend fun append(sessionId: Long, sample: DeviceSample): Boolean =
-        withContext(Dispatchers.IO) {
-            val database = db.writableDatabase
-            database.beginTransaction()
-            try {
-                val writable = database.rawQuery(
-                    """SELECT id FROM sessions WHERE id=? AND status='RECORDING'
-                       AND stop_requested_at_ms IS NULL LIMIT 1""",
-                    arrayOf(sessionId.toString())
-                ).use { it.moveToFirst() }
-                if (!writable) return@withContext false
-                val row = ContentValues().apply {
-                    put("session_id", sessionId)
-                    put("time_ms", sample.observedAtMs)
-                    sample.cpuLoadPercent?.let { put("cpu_load_pct", it) }
-                    sample.batteryLevelPercent?.let { put("battery_pct", it) }
-                    sample.batteryTemperatureC?.let { put("battery_temp_c", it) }
-                    sample.availableMemoryMiB?.let { put("free_memory_mib", it) }
-                    sample.cpuClockMHz?.let { put("cpu_clock_mhz", it) }
-                    sample.gpuClockMHz?.let { put("gpu_clock_mhz", it) }
-                }
-                val saved = database.insertOrThrow("samples", null, row) > 0L
-                if (saved) database.setTransactionSuccessful()
-                saved
-            } finally {
-                database.endTransaction()
+        appendOutcome(sessionId, sample) == AppendOutcome.WRITTEN
+
+    override suspend fun appendOutcome(
+        sessionId: Long, sample: DeviceSample
+    ): AppendOutcome = withContext(Dispatchers.IO) {
+        val database = db.writableDatabase
+        database.beginTransaction()
+        try {
+            val writable = database.rawQuery(
+                """SELECT id FROM sessions WHERE id=? AND status='RECORDING'
+                   AND stop_requested_at_ms IS NULL LIMIT 1""",
+                arrayOf(sessionId.toString())
+            ).use { it.moveToFirst() }
+            if (!writable) return@withContext AppendOutcome.STOP_REQUESTED
+            val row = ContentValues().apply {
+                put("session_id", sessionId)
+                put("time_ms", sample.observedAtMs)
+                sample.cpuLoadPercent?.let { put("cpu_load_pct", it) }
+                sample.batteryLevelPercent?.let { put("battery_pct", it) }
+                sample.batteryTemperatureC?.let { put("battery_temp_c", it) }
+                sample.availableMemoryMiB?.let { put("free_memory_mib", it) }
+                sample.cpuClockMHz?.let { put("cpu_clock_mhz", it) }
+                sample.gpuClockMHz?.let { put("gpu_clock_mhz", it) }
             }
+            val saved = database.insertOrThrow("samples", null, row) > 0L
+            if (saved) database.setTransactionSuccessful()
+            if (saved) AppendOutcome.WRITTEN else AppendOutcome.RETRYABLE_ERROR
+        } finally {
+            database.endTransaction()
         }
+    }
 
     override suspend fun persistStop(sessionId: Long): Boolean =
         withContext(Dispatchers.IO) {
