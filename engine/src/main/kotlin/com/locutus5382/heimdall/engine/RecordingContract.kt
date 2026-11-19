@@ -36,6 +36,11 @@ interface DeviceSampleSource {
 interface RecordingPersistence {
     /** Any incomplete row or unacknowledged lease blocks a fresh START. */
     suspend fun unresolvedSessionId(): Long?
+    /** Finish only the original session with a previously persisted STOP intent.
+     * Returns its ID on successful recovery, null when no durable STOP exists
+     * or when the original cannot yet be finalized. Never opens another row.
+     */
+    suspend fun recoverPendingStop(): Long?
     /** Creates one session row and its matching recovery lease. */
     suspend fun begin(): Long
     suspend fun append(sessionId: Long, sample: DeviceSample): Boolean
