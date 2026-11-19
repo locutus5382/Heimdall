@@ -10,7 +10,11 @@ class HudModelsTest {
     @Test fun threeLayoutsCycleWithoutChangingTheRecorder() {
         assertEquals(HudLayout.CARD, HudLayout.PILL.next())
         assertEquals(HudLayout.RIBBON, HudLayout.CARD.next())
-        assertEquals(HudLayout.PILL, HudLayout.RIBBON.next())
+        assertEquals(HudLayout.SPINE, HudLayout.RIBBON.next())
+        assertEquals(HudLayout.PILL, HudLayout.SPINE.next())
+        assertEquals(4, HudLayout.PILL.metricLimit())
+        assertEquals(5, HudLayout.RIBBON.metricLimit())
+        assertEquals(3, HudLayout.SPINE.metricLimit())
         assertEquals(HudLayout.PILL, HudLayout.from("invalid"))
         assertEquals(HudLayout.RIBBON, HudLayout.from("RIBBON"))
     }
@@ -22,8 +26,10 @@ class HudModelsTest {
         assertEquals(1f, bad.scale, .001f)
         assertEquals(.76f, bad.opacity, .001f)
         assertEquals(HudMetric.defaults, bad.metrics)
-        assertEquals(.75f, HudProfile(scale = .1f).sanitized().scale, .001f)
+        assertEquals(.85f, HudProfile(scale = .1f).sanitized().scale, .001f)
         assertEquals(.9f, HudProfile(opacity = 3f).sanitized().opacity, .001f)
+        assertEquals(HudDock.RIGHT, HudDock.from("right"))
+        assertEquals(HudDock.AUTO, HudDock.from("unknown"))
         assertEquals(HudMetric.defaults, HudMetric.parse(null))
         assertEquals(setOf(HudMetric.CPU_LOAD), HudMetric.parse("cpu,unknown"))
     }

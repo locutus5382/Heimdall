@@ -3,6 +3,7 @@ package com.locutus5382.heimdall
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.RectF
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
@@ -33,6 +34,7 @@ class HudCanvasTest {
         override fun lock() { locks++ }
         override fun drag(dxPixels: Int, dyPixels: Int) { moves++ }
         override fun settle() { settles++ }
+        override fun drawError() { throw AssertionError("Canvas failure") }
     }
 
     private fun render(view: HeimdallCanvasView, mode: HudLayout) {
@@ -59,44 +61,36 @@ class HudCanvasTest {
         bitmap.recycle()
     }
 
-    @Test fun allThreeLayoutsDrawWithMissingSamplesAndTouchableButtons() {
+    private fun tap(view: HeimdallCanvasView, rect: RectF) {
+        assertTrue("Touch target must be visible", rect.width() > 0f)
+        assertTrue("Touch target must be visible", rect.height() > 0f)
+        val now = SystemClock.uptimeMillis()
+        val down = MotionEvent.obtain(now, now,
+            MotionEvent.ACTION_DOWN, rect.centerX(), rect.centerY(), 0)
+        view.onTouchEvent(down)
+        down.recycle()
+        val up = MotionEvent.obtain(now, now + 55L,
+            MotionEvent.ACTION_UP, rect.centerX(), rect.centerY(), 0)
+        view.onTouchEvent(up)
+        up.recycle()
+    }
+
+    @Test fun allFourLayoutsDrawWithMissingSamplesAndTouchableStopMenu() {
         val app = InstrumentationRegistry.getInstrumentation().targetContext
         val actions = Actions()
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             val view = HeimdallCanvasView(app, actions)
             for (layout in HudLayout.entries) {
                 render(view, layout)
-                val designW = when (layout) {
-                    HudLayout.PILL -> 490f
-                    HudLayout.CARD -> 388f
-                    HudLayout.RIBBON -> 690f
-                }
-                val designH = when (layout) {
-                    HudLayout.PILL -> 86f
-                    HudLayout.CARD -> 275f
-                    HudLayout.RIBBON -> 70f
-                }
-                val top = when (layout) {
-                    HudLayout.PILL -> 33f
-                    HudLayout.CARD -> 223f
-                    HudLayout.RIBBON -> 11f
-                }
-                val x = (designW - 38f) * view.width / designW
-                val y = (top + 24f) * view.height / designH
-                val t = SystemClock.uptimeMillis()
-                val down = MotionEvent.obtain(
-                    t, t, MotionEvent.ACTION_DOWN, x, y, 0
-                )
-                view.onTouchEvent(down)
-                down.recycle()
-                val up = MotionEvent.obtain(
-                    t, t + 50L, MotionEvent.ACTION_UP, x, y, 0
-                )
-                view.onTouchEvent(up)
-                up.recycle()
+                tap(view, view.actionBoundsForTest("menu"))
+                // The single overlay expands its controls only on demand;
+                // no secondary HUD/window or database session is created.
+                render(view, layout)
+                tap(view, view.actionBoundsForTest("stop"))
+                render(view, layout)
             }
         }
-        assertEquals(3, actions.stops)
+        assertEquals(4, actions.stops)
     }
 
     @Test fun studioProfileRoundTripsAcrossAllSupportedValues() {
@@ -110,7 +104,7 @@ class HudCanvasTest {
             )
             store.save(chosen)
             assertEquals(chosen, store.read())
-            assertEquals(HudLayout.PILL, HudLayout.RIBBON.next())
+            assertEquals(HudLayout.SPINE, HudLayout.RIBBON.next())
         } finally {
             store.save(original)
         }

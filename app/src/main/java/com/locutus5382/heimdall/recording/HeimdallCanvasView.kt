@@ -15,19 +15,18 @@ import android.view.View
 import android.view.ViewConfiguration
 import com.locutus5382.heimdall.engine.DeviceSample
 import com.locutus5382.heimdall.engine.HudLayout
-import com.locutus5382.heimdall.engine.HudMetric
 import com.locutus5382.heimdall.engine.HudProfile
+import com.locutus5382.heimdall.engine.HudRenderState
 import com.locutus5382.heimdall.engine.HudTelemetryHistory
-import java.util.Locale
+import com.locutus5382.heimdall.engine.ThermalIndicatorState
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
- * Original lightweight Canvas renderer. One window-owned View and NO sensor
- * reads, DB calls, background loops, external bitmap allocation, or 60Hz redraw.
- * Actions are dispatched back to the owning Service/controller.
+ * One original renderer, four presentations. No sensor, database, clock or
+ * filesystem access in onDraw. State is formatted before it reaches Canvas.
  */
 internal class HeimdallCanvasView(
     context: Context,
@@ -39,54 +38,57 @@ internal class HeimdallCanvasView(
         fun lock()
         fun drag(dxPixels: Int, dyPixels: Int)
         fun settle()
+        fun drawError()
     }
 
-    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val pen = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val density = resources.displayMetrics.density
+    private val labelFace: Typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+    private val numberFace: Typeface = Typeface.MONOSPACE
+    private val fontFactor = resources.configuration.fontScale
+    private val layoutEngine = HudLayoutEngine(fontFactor)
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 1f
     }
-    private val graph = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val plot = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 1.7f
+        strokeWidth = 2f
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
-    private val graphPath = Path()
-    private val stopRect = RectF()
-    private val modeRect = RectF()
-    private val lockRect = RectF()
+    private val path = Path()
+    private val borderPath = Path()
+    private val tempRect = RectF()
+    private val shade = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var gradient: LinearGradient? = null
 
-    private var profile = HudProfile()
-    private var history: List<HudTelemetryHistory.Point> = emptyList()
-    private var current: DeviceSample? = null
-    private var sessionId = 0L
-    private var saving = false
-    private var hotSince = 0L
-    private val slop = ViewConfiguration.get(context).scaledTouchSlop
-    private var touchAction = 0
-    private var lastRawX = 0f
-    private var lastRawY = 0f
-    private var downRawX = 0f
-    private var downRawY = 0f
-    private var moved = false
-
+    private val midnight = Color.rgb(11, 20, 37)
+    private val cobalt = Color.rgb(25, 43, 73)
     private val signal = Color.rgb(101, 213, 245)
     private val caution = Color.rgb(240, 189, 98)
-    private val alert = Color.rgb(241, 107, 120)
-    private val cobalt = Color.rgb(55, 108, 210)
-    private val ice = Color.rgb(234, 241, 255)
-    private val muted = Color.rgb(155, 182, 216)
-    private val density = resources.displayMetrics.density
+    private val coral = Color.rgb(241, 107, 120)
+    private val ice = Color.rgb(242, 246, 252)
+    private val muted = Color.rgb(148, 167, 196)
+
+    private var profile = HudProfile()
+    private var state = HudRenderState.recording(0L, 0L, null, profile, emptyList())
+    private var geometry: HudGeometry? = null
+    private var menuExpanded = false
+    private var drawFailures = 0
+    private val slop = ViewConfiguration.get(context).scaledTouchSlop
+    private var touchAction = 0
+    private var downRawX = 0f
+    private var downRawY = 0f
+    private var lastRawX = 0f
+    private var lastRawY = 0f
+    private var dragged = false
 
     init {
         isClickable = true
-        isFocusable = true
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
-        contentDescription =
-            "Heimdall recording HUD. Drag from the left area. " +
-            "Right controls select layout, lock position, or stop recording."
+        contentDescription = "Heimdall recording telemetry. Tap the menu at the end " +
+            "to access layout, touch lock, and stop controls."
     }
 
     fun update(
@@ -94,246 +96,274 @@ internal class HeimdallCanvasView(
         id: Long,
         sample: DeviceSample?,
         history: List<HudTelemetryHistory.Point>,
-        saving: Boolean = false
+        saving: Boolean = false,
+        elapsedMs: Long = 0L,
+        thermal: ThermalIndicatorState = ThermalIndicatorState.NOMINAL,
     ) {
         val valid = profile.sanitized()
-        val layoutChanged = this.profile.layout != valid.layout ||
-            this.profile.scale != valid.scale
+        val newState = HudRenderState.recording(
+            id, elapsedMs, sample, valid, history, thermal, saving
+        )
+        val previous = this.state
+        val relayout = this.profile.layout != valid.layout ||
+            this.profile.scale != valid.scale ||
+            previous.readouts != newState.readouts ||
+            this.profile.metrics != valid.metrics ||
+            this.profile.locked != valid.locked
         this.profile = valid
-        if (sessionId != id) hotSince = 0L
-        sessionId = id
-        current = sample
-        this.history = history
-        this.saving = saving
-        if (layoutChanged) requestLayout()
+        this.state = newState
+        if (relayout || geometry == null) requestLayout()
         invalidate()
     }
 
-    private fun designWidth() = when (profile.layout) {
-        HudLayout.PILL -> 490f
-        HudLayout.CARD -> 388f
-        HudLayout.RIBBON -> 690f
-    }
-    private fun designHeight() = when (profile.layout) {
-        HudLayout.PILL -> 86f
-        HudLayout.CARD -> 275f
-        HudLayout.RIBBON -> 70f
+    private fun calculate(maxAvailablePx: Int): HudGeometry {
+        val availableDp = max(1f,
+            (maxAvailablePx - 16f * density) / (density * profile.scale))
+        return layoutEngine.calculate(profile, state, availableDp, menuExpanded)
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val screenW = resources.displayMetrics.widthPixels
-        val usable = max(1, screenW - (16 * density).roundToInt())
-        val intended = designWidth() * density * profile.scale
-        val targetW = min(usable, intended.roundToInt()).coerceAtLeast(1)
-        val factor = targetW / (designWidth() * density)
-        val targetH = (designHeight() * density * factor).roundToInt().coerceAtLeast(1)
-        setMeasuredDimension(
-            resolveSize(targetW, widthMeasureSpec),
-            resolveSize(targetH, heightMeasureSpec)
-        )
-    }
-
-    private fun text(
-        canvas: Canvas, value: String, x: Float, baseline: Float,
-        size: Float, color: Int, bold: Boolean = false
-    ) {
-        pen.style = Paint.Style.FILL
-        pen.color = color
-        pen.shader = null
-        pen.textSize = size
-        pen.typeface = if (bold) Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        else Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-        pen.textAlign = Paint.Align.LEFT
-        canvas.drawText(value, x, baseline, pen)
-    }
-
-    private fun round(canvas: Canvas, rect: RectF, radius: Float, color: Int) {
-        fill.shader = null
-        fill.color = color
-        fill.style = Paint.Style.FILL
-        canvas.drawRoundRect(rect, radius, radius, fill)
-    }
-
-    private fun shell(canvas: Canvas, width: Float, height: Float) {
-        val opacity = profile.opacity.coerceIn(.45f, .9f)
-        fill.shader = LinearGradient(
-            0f, 0f, width, height,
+        val screenWidth = resources.displayMetrics.widthPixels
+        val cap = min(screenWidth,
+            View.MeasureSpec.getSize(widthMeasureSpec).takeIf {
+                View.MeasureSpec.getMode(widthMeasureSpec) !=
+                    View.MeasureSpec.UNSPECIFIED && it > 0
+            } ?: screenWidth)
+        val newGeometry = calculate(cap)
+        geometry = newGeometry
+        gradient = LinearGradient(
+            0f, 0f, newGeometry.widthDp, newGeometry.heightDp,
             intArrayOf(
-                Color.argb((230 * opacity).roundToInt(), 32, 70, 128),
-                Color.argb((250 * opacity).roundToInt(), 12, 31, 66),
-                Color.argb((255 * opacity).roundToInt(), 7, 18, 40)
-            ), null, Shader.TileMode.CLAMP
+                Color.rgb(26, 52, 91),
+                midnight,
+                Color.rgb(7, 16, 32)
+            ), null, Shader.TileMode.CLAMP)
+        val factor = density * profile.scale
+        val w = (newGeometry.widthDp * factor).roundToInt().coerceAtLeast(1)
+        val h = (newGeometry.heightDp * factor).roundToInt().coerceAtLeast(1)
+        setMeasuredDimension(
+            resolveSize(w, widthMeasureSpec),
+            resolveSize(h, heightMeasureSpec)
         )
-        canvas.drawRoundRect(RectF(1f, 1f, width - 1f, height - 1f),
-            if (profile.layout == HudLayout.PILL) 28f else 19f,
-            if (profile.layout == HudLayout.PILL) 28f else 19f, fill)
-        fill.shader = null
-        line.color = Color.argb(195, 145, 189, 239)
-        line.strokeWidth = 1f
-        canvas.drawRoundRect(RectF(1f, 1f, width - 1f, height - 1f),
-            if (profile.layout == HudLayout.PILL) 28f else 19f,
-            if (profile.layout == HudLayout.PILL) 28f else 19f, line)
-        line.color = Color.argb(83, 101, 187, 255)
-        canvas.drawLine(16f, 3f, width - 20f, 3f, line)
     }
 
-    private fun metricText(metric: HudMetric): String = when (metric) {
-        HudMetric.CPU_LOAD -> current?.cpuLoadPercent
-            ?.takeIf { it.isFinite() && it in 0.0..100.0 }
-            ?.let { String.format(Locale.US, "%.0f%%", it) } ?: "—"
-        HudMetric.GPU_CLOCK -> current?.gpuClockMHz
-            ?.takeIf { it > 0L }?.let { String.format(Locale.US, "%d MHz", it) } ?: "—"
-        HudMetric.BATTERY -> current?.batteryLevelPercent
-            ?.takeIf { it in 0..100 }?.let { String.format(Locale.US, "%d%%", it) } ?: "—"
-        HudMetric.BATTERY_TEMP -> current?.batteryTemperatureC
-            ?.takeIf { it.isFinite() && it in -30.0..100.0 }
-            ?.let { String.format(Locale.US, "%.1f°C", it) } ?: "—"
-        HudMetric.CPU_CLOCK -> current?.cpuClockMHz
-            ?.takeIf { it > 0L }?.let { String.format(Locale.US, "%d MHz", it) } ?: "—"
-        HudMetric.FREE_MEMORY -> current?.availableMemoryMiB
-            ?.takeIf { it >= 0L }?.let { String.format(Locale.US, "%d MiB", it) } ?: "—"
+    private fun rect(canvas: Canvas, r: RectF, radius: Float, color: Int) {
+        paint.shader = null
+        paint.style = Paint.Style.FILL
+        paint.color = color
+        canvas.drawRoundRect(r, radius, radius, paint)
     }
 
-    private fun label(metric: HudMetric) = when (metric) {
-        HudMetric.CPU_LOAD -> "CPU"
-        HudMetric.GPU_CLOCK -> "GPU CLK"
-        HudMetric.BATTERY -> "BAT"
-        HudMetric.BATTERY_TEMP -> "BAT T"
-        HudMetric.CPU_CLOCK -> "CPU CLK"
-        HudMetric.FREE_MEMORY -> "FREE RAM"
-    }
-
-    private fun tempColor(): Int {
-        val temp = current?.batteryTemperatureC
-        if (temp == null || !temp.isFinite()) {
-            hotSince = 0
-            return ice
-        }
-        val now = SystemClock.elapsedRealtime()
-        return when {
-            temp > 42.0 -> {
-                if (hotSince == 0L) hotSince = now
-                if (now - hotSince >= 15_000L) alert else caution
-            }
-            temp >= 38.0 -> { hotSince = 0L; caution }
-            else -> { hotSince = 0L; ice }
-        }
-    }
-
-    private fun valueColor(metric: HudMetric): Int =
-        if (metric == HudMetric.BATTERY_TEMP) tempColor() else ice
-
-    private fun selected(count: Int) =
-        HudMetric.entries.filter { it in profile.metrics }.take(count)
-
-    private fun metricChip(
-        canvas: Canvas, metric: HudMetric, x: Float, y: Float, w: Float, h: Float
+    private fun label(
+        canvas: Canvas, value: String, x: Float, baseline: Float,
+        sp: Float, color: Int, numeric: Boolean = false
     ) {
-        round(canvas, RectF(x, y, x + w, y + h), 12f,
-            Color.argb(93, 52, 90, 142))
-        text(canvas, label(metric), x + 10f, y + 18f, 10f, muted, true)
-        text(canvas, metricText(metric), x + 10f, y + 40f,
-            16f, valueColor(metric), true)
+        paint.shader = null
+        paint.style = Paint.Style.FILL
+        paint.color = color
+        paint.textSize = sp * fontFactor
+        paint.typeface = if (numeric) numberFace else labelFace
+        paint.textAlign = Paint.Align.LEFT
+        canvas.drawText(value, x, baseline, paint)
     }
 
-    private fun sparkline(canvas: Canvas, left: Float, top: Float,
-                          width: Float, height: Float) {
-        val points = history
-        text(canvas, "CPU LOAD HISTORY", left, top - 7f, 9f, muted, true)
-        round(canvas, RectF(left, top, left + width, top + height),
-            8f, Color.argb(82, 3, 14, 32))
+    private fun surface(canvas: Canvas, g: HudGeometry) {
+        paint.shader = gradient
+        paint.color = Color.WHITE
+        paint.alpha = (255f * profile.opacity).roundToInt()
+        val w = g.widthDp
+        val h = g.heightDp
+        if (profile.layout == HudLayout.RIBBON ||
+            profile.layout == HudLayout.SPINE) {
+            borderPath.reset()
+            if (profile.layout == HudLayout.RIBBON) {
+                borderPath.moveTo(0f, 0f)
+                borderPath.lineTo(w, 0f)
+                borderPath.lineTo(w - 16f, h - 1f)
+                borderPath.lineTo(16f, h - 1f)
+            } else {
+                borderPath.moveTo(0f, 0f)
+                borderPath.lineTo(w - 13f, 0f)
+                borderPath.lineTo(w - 1f, 14f)
+                borderPath.lineTo(w - 1f, h - 14f)
+                borderPath.lineTo(w - 13f, h)
+                borderPath.lineTo(0f, h)
+            }
+            borderPath.close()
+            canvas.drawPath(borderPath, paint)
+            stroke.color = Color.rgb(59, 99, 175)
+            canvas.drawPath(borderPath, stroke)
+        } else {
+            tempRect.set(1f, 1f, w - 1f, h - 1f)
+            canvas.drawRoundRect(tempRect,
+                if (profile.layout == HudLayout.PILL) 30f else 15f,
+                if (profile.layout == HudLayout.PILL) 30f else 15f, paint)
+            stroke.color = Color.rgb(59, 99, 175)
+            canvas.drawRoundRect(tempRect,
+                if (profile.layout == HudLayout.PILL) 30f else 15f,
+                if (profile.layout == HudLayout.PILL) 30f else 15f, stroke)
+        }
+        paint.shader = null
+        paint.alpha = 255
+        stroke.color = signal
+        stroke.strokeWidth = 2f
+        if (profile.layout == HudLayout.SPINE)
+            canvas.drawLine(w - 3f, 14f, w - 3f, h - 14f, stroke)
+        else if (profile.layout == HudLayout.RIBBON)
+            canvas.drawLine(22f, h - 4f, w - 22f, h - 4f, stroke)
+        else if (profile.layout == HudLayout.CARD)
+            canvas.drawLine(18f, 4f, w - 18f, 4f, stroke)
+        else canvas.drawLine(3f, h * .40f, 3f, h * .60f, stroke)
+        stroke.strokeWidth = 1f
+    }
+
+    private fun drawHeader(canvas: Canvas, g: HudGeometry) {
+        val rec = state.recordingLabel
+        when (profile.layout) {
+            HudLayout.CARD -> {
+                label(canvas, "HEIMDALL", 16f, 31f, 13f, ice)
+                label(canvas, rec, max(122f, g.widthDp - 184f),
+                    31f, 11f, coral, true)
+            }
+            HudLayout.SPINE -> {
+                label(canvas, "● REC", 12f, 26f, 12f, coral, true)
+                label(canvas, state.elapsedLabel, 12f, 43f, 11f, ice, true)
+            }
+            else -> label(canvas, rec, 14f, 39f, 12f, coral, true)
+        }
+    }
+
+    private fun segmentedGauge(canvas: Canvas, s: HudSlot) {
+        val fraction = s.readout.normalized ?: return
+        val bars = 6
+        val left = s.bounds.left + 5f
+        val width = (s.bounds.width() - 12f - (bars - 1) * 3f) / bars
+        if (width < 1f) return
+        for (i in 0 until bars) {
+            val color = if (i < (fraction * bars).roundToInt())
+                if (s.readout.alert) coral
+                else if (s.readout.caution) caution else signal
+            else Color.rgb(48, 68, 95)
+            tempRect.set(left + i * (width + 3f), s.bounds.bottom - 5f,
+                left + i * (width + 3f) + width, s.bounds.bottom - 2f)
+            rect(canvas, tempRect, 1f, color)
+        }
+    }
+
+    private fun metrics(canvas: Canvas, g: HudGeometry) {
+        g.slots.forEach { slot ->
+            if (profile.layout == HudLayout.CARD) {
+                rect(canvas, slot.bounds, 9f, Color.argb(138, 34, 53, 83))
+            } else if (profile.layout == HudLayout.SPINE) {
+                stroke.color = cobalt
+                canvas.drawLine(9f, slot.bounds.bottom - 1f,
+                    g.widthDp - 9f, slot.bounds.bottom - 1f, stroke)
+            }
+            label(canvas, slot.readout.label,
+                slot.labelX, slot.labelY, 10f, muted)
+            label(canvas, slot.readout.value, slot.valueX, slot.valueY,
+                if (profile.layout == HudLayout.CARD) 17f
+                else if (profile.layout == HudLayout.SPINE) 14f
+                else 14.5f,
+                if (slot.readout.alert) coral
+                else if (slot.readout.caution) caution else ice, true)
+            if (profile.layout == HudLayout.PILL ||
+                profile.layout == HudLayout.RIBBON) segmentedGauge(canvas, slot)
+        }
+    }
+
+    private fun sparkline(canvas: Canvas, g: HudGeometry) {
+        val bounds = g.graph ?: return
+        label(canvas, "CPU LOAD HISTORY · MEASURED", bounds.left,
+            bounds.top - 9f, 10f, muted)
+        rect(canvas, bounds, 7f, Color.argb(100, 4, 13, 29))
+        stroke.color = cobalt
+        for (i in 1..2) {
+            val y = bounds.top + i * bounds.height() / 3f
+            canvas.drawLine(bounds.left + 6f, y, bounds.right - 6f, y, stroke)
+        }
+        val points = state.cpuHistory
         if (points.size < 2) {
-            text(canvas, "Waiting for samples", left + 10f, top + 16f, 10f, muted)
+            label(canvas, "Waiting for real samples", bounds.left + 9f,
+                bounds.centerY() + 3f, 10f, muted)
             return
         }
-        graph.color = signal
-        graphPath.reset()
-        var active = false
-        points.forEachIndexed { i, item ->
-            val load = item.cpuLoad
+        plot.color = signal
+        path.reset()
+        var open = false
+        for (index in points.indices) {
+            val load = points[index].cpuLoad
             if (load == null) {
-                if (active) {
-                    canvas.drawPath(graphPath, graph)
-                    graphPath.reset()
-                }
-                active = false
+                if (open) canvas.drawPath(path, plot)
+                path.reset()
+                open = false
             } else {
-                val x = left + 8f + i.toFloat() /
-                    max(1f, (points.size - 1).toFloat()) * (width - 16f)
-                val y = top + 5f + (1f - (load / 100.0).toFloat()) * (height - 10f)
-                if (!active) graphPath.moveTo(x, y) else graphPath.lineTo(x, y)
-                active = true
+                val x = bounds.left + 6f +
+                    (index.toFloat() / max(1f, (points.size - 1).toFloat())) *
+                    (bounds.width() - 12f)
+                val y = bounds.bottom - 5f -
+                    (load.toFloat() / 100f) * (bounds.height() - 10f)
+                if (open) path.lineTo(x, y) else path.moveTo(x, y)
+                open = true
             }
         }
-        if (active) canvas.drawPath(graphPath, graph)
+        if (open) canvas.drawPath(path, plot)
     }
 
-    private fun controls(canvas: Canvas, width: Float, top: Float) {
-        modeRect.set(width - 174f, top, width - 126f, top + 48f)
-        lockRect.set(width - 121f, top, width - 73f, top + 48f)
-        stopRect.set(width - 68f, top, width - 5f, top + 48f)
-        round(canvas, modeRect, 13f, Color.argb(175, 36, 67, 114))
-        round(canvas, lockRect, 13f, Color.argb(175, 36, 67, 114))
-        round(canvas, stopRect, 13f, Color.argb(195, 69, 49, 78))
-        text(canvas, "MODE", modeRect.left + 7f, top + 29f, 11f, signal, true)
-        text(canvas, "LOCK", lockRect.left + 7f, top + 29f, 11f, caution, true)
-        text(canvas, if (saving) "SAVE" else "STOP",
-            stopRect.left + 11f, top + 29f, 11f, alert, true)
+    private fun controls(canvas: Canvas, g: HudGeometry) {
+        rect(canvas, g.menu, 11f, Color.argb(175, 36, 59, 98))
+        label(canvas, if (menuExpanded) "×" else "≡",
+            g.menu.centerX() - 7f, g.menu.centerY() + 6f, 20f, signal)
+        if (!menuExpanded) return
+        drawAction(canvas, g.mode, "MODE", false)
+        drawAction(canvas, g.lock, "LOCK", false)
+        drawAction(canvas, g.stop, if (state.saving) "SAVE" else "STOP", true)
     }
 
-    private fun recBadge(canvas: Canvas, x: Float, y: Float) {
-        fill.shader = null
-        fill.color = alert
-        canvas.drawCircle(x, y - 3f, 3.4f, fill)
-        text(canvas, "REC", x + 10f, y, 10f, ice, true)
+    private fun drawAction(canvas: Canvas, r: RectF, label: String, dangerous: Boolean) {
+        rect(canvas, r, 10f,
+            if (dangerous) Color.argb(204, 77, 43, 68)
+            else Color.argb(198, 29, 54, 90))
+        label(canvas, label, r.left + 5f, r.centerY() + 4f, 10f,
+            if (dangerous) coral else signal)
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val w = designWidth()
-        val h = designHeight()
+        val g = geometry ?: return
         if (width <= 0 || height <= 0) return
         val save = canvas.save()
-        canvas.scale(width / w, height / h)
-        shell(canvas, w, h)
-        when (profile.layout) {
-            HudLayout.PILL -> {
-                text(canvas, "◉ HEIMDALL", 18f, 23f, 12f, caution, true)
-                recBadge(canvas, 136f, 23f)
-                text(canvas, "SESSION " + sessionId, 193f, 23f, 9f, muted)
-                val selected = selected(3)
-                selected.forEachIndexed { i, metric ->
-                    val x = 20f + i * 100f
-                    text(canvas, label(metric), x, 48f, 9f, muted, true)
-                    text(canvas, metricText(metric), x, 69f,
-                        15f, valueColor(metric), true)
-                }
-                controls(canvas, w, 33f)
-            }
-            HudLayout.CARD -> {
-                text(canvas, "◉ HEIMDALL", 18f, 29f, 14f, caution, true)
-                recBadge(canvas, 165f, 27f)
-                text(canvas, "SESSION " + sessionId, 237f, 27f, 10f, muted)
-                selected(6).forEachIndexed { i, metric ->
-                    metricChip(canvas, metric, 16f + (i % 3) * 122f,
-                        52f + (i / 3) * 64f, 115f, 57f)
-                }
-                sparkline(canvas, 17f, 198f, 186f, 24f)
-                controls(canvas, w, 223f)
-            }
-            HudLayout.RIBBON -> {
-                text(canvas, "◉ HEIMDALL", 14f, 26f, 12f, caution, true)
-                recBadge(canvas, 18f, 48f)
-                selected(4).forEachIndexed { i, metric ->
-                    val x = 131f + i * 99f
-                    text(canvas, label(metric), x, 26f, 9f, muted, true)
-                    text(canvas, metricText(metric), x, 47f,
-                        14f, valueColor(metric), true)
-                }
-                controls(canvas, w, 11f)
-            }
+        try {
+            canvas.scale(width / g.widthDp, height / g.heightDp)
+            surface(canvas, g)
+            drawHeader(canvas, g)
+            metrics(canvas, g)
+            if (profile.layout == HudLayout.CARD) sparkline(canvas, g)
+            controls(canvas, g)
+            drawFailures = 0
+        } catch (error: RuntimeException) {
+            // Contain recoverable renderer errors; the recorder continues.
+            drawFailures++
+            if (drawFailures >= 3) post { actions.drawError() }
+        } finally {
+            canvas.restoreToCount(save)
         }
-        canvas.restoreToCount(save)
+    }
+
+    /** Real view-coordinate touch bounds, also used by Android integration tests. */
+    internal fun actionBoundsForTest(action: String): RectF {
+        val g = geometry ?: return RectF()
+        val design = when (action) {
+            "menu" -> g.menu
+            "mode" -> g.mode
+            "lock" -> g.lock
+            "stop" -> g.stop
+            else -> RectF()
+        }
+        return RectF(design.left * width / g.widthDp,
+            design.top * height / g.heightDp,
+            design.right * width / g.widthDp,
+            design.bottom * height / g.heightDp)
     }
 
     override fun performClick(): Boolean {
@@ -343,52 +373,66 @@ internal class HeimdallCanvasView(
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (profile.locked) return false
-        val px = event.x * designWidth() / max(1, width)
-        val py = event.y * designHeight() / max(1, height)
+        val g = geometry ?: return false
+        val x = event.x * g.widthDp / max(1, width)
+        val y = event.y * g.heightDp / max(1, height)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 touchAction = when {
-                    stopRect.contains(px, py) -> 1
-                    modeRect.contains(px, py) -> 2
-                    lockRect.contains(px, py) -> 3
-                    else -> 4
+                    g.menu.contains(x, y) -> 1
+                    menuExpanded && g.mode.contains(x, y) -> 2
+                    menuExpanded && g.lock.contains(x, y) -> 3
+                    menuExpanded && g.stop.contains(x, y) -> 4
+                    else -> 5
                 }
-                lastRawX = event.rawX
-                lastRawY = event.rawY
                 downRawX = event.rawX
                 downRawY = event.rawY
-                moved = false
+                lastRawX = event.rawX
+                lastRawY = event.rawY
+                dragged = false
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
-                if (touchAction == 4) {
+                if (abs(event.rawX - downRawX) > slop ||
+                    abs(event.rawY - downRawY) > slop) dragged = true
+                if (touchAction == 5 && dragged) {
                     val dx = (event.rawX - lastRawX).roundToInt()
                     val dy = (event.rawY - lastRawY).roundToInt()
-                    if (abs(event.rawX - downRawX) > slop ||
-                        abs(event.rawY - downRawY) > slop) moved = true
-                    if (moved && (dx != 0 || dy != 0)) actions.drag(dx, dy)
+                    if (dx != 0 || dy != 0) actions.drag(dx, dy)
                 }
                 lastRawX = event.rawX
                 lastRawY = event.rawY
                 return true
             }
             MotionEvent.ACTION_UP -> {
-                val finished = touchAction
-                touchAction = 0
-                if (finished == 4) {
-                    if (moved) actions.settle() else performClick()
-                } else if (!moved) {
-                    when (finished) {
-                        1 -> if (stopRect.contains(px, py) && !saving) actions.stop()
-                        2 -> if (modeRect.contains(px, py)) actions.cycle()
-                        3 -> if (lockRect.contains(px, py)) actions.lock()
+                if (touchAction == 5 && dragged) actions.settle()
+                else if (!dragged) {
+                    when (touchAction) {
+                        1 -> if (g.menu.contains(x, y)) {
+                            menuExpanded = !menuExpanded
+                            requestLayout()
+                            invalidate()
+                        }
+                        2 -> if (g.mode.contains(x, y)) {
+                            menuExpanded = false
+                            actions.cycle()
+                        }
+                        3 -> if (g.lock.contains(x, y)) {
+                            menuExpanded = false
+                            actions.lock()
+                        }
+                        4 -> if (g.stop.contains(x, y) && !state.saving) {
+                            menuExpanded = false
+                            actions.stop()
+                        }
                     }
                     performClick()
                 }
+                touchAction = 0
                 return true
             }
             MotionEvent.ACTION_CANCEL -> {
-                if (touchAction == 4 && moved) actions.settle()
+                if (touchAction == 5 && dragged) actions.settle()
                 touchAction = 0
                 return true
             }

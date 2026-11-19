@@ -2,6 +2,7 @@ package com.locutus5382.heimdall.recording
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.locutus5382.heimdall.engine.HudDock
 import com.locutus5382.heimdall.engine.HudLayout
 import com.locutus5382.heimdall.engine.HudMetric
 import com.locutus5382.heimdall.engine.HudProfile
@@ -16,7 +17,8 @@ class HudProfileStore(context: Context) {
         scale = prefs.getFloat("hud_scale_v2", 1f),
         opacity = prefs.getFloat("hud_opacity_v2", .76f),
         locked = prefs.getBoolean("hud_locked_v2", false),
-        metrics = HudMetric.parse(prefs.getString("hud_metrics_v2", null))
+        metrics = HudMetric.parse(prefs.getString("hud_metrics_v2", null)),
+        dock = HudDock.from(prefs.getString("hud_dock_v3", null))
     ).sanitized()
 
     fun save(profile: HudProfile) {
@@ -26,6 +28,7 @@ class HudProfileStore(context: Context) {
             .putFloat("hud_scale_v2", valid.scale)
             .putFloat("hud_opacity_v2", valid.opacity)
             .putBoolean("hud_locked_v2", valid.locked)
+            .putString("hud_dock_v3", valid.dock.token)
             .putString("hud_metrics_v2",
                 HudMetric.entries.filter { it in valid.metrics }
                     .joinToString(",") { it.token })

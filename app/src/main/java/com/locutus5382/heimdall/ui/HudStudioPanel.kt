@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.locutus5382.heimdall.engine.HudDock
 import com.locutus5382.heimdall.engine.HudLayout
 import com.locutus5382.heimdall.engine.HudMetric
 import com.locutus5382.heimdall.engine.HudProfile
@@ -72,7 +73,7 @@ fun HudStudioPanel() {
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text("HUD STUDIO  /  CANVAS 2.0", color = gold)
+        Text("HUD STUDIO  /  M4 CANVAS", color = gold)
         Text(
             "Choose how the in-game observatory looks. Settings update the " +
                 "same recording HUD; they never start a second collector.",
@@ -91,6 +92,7 @@ fun HudStudioPanel() {
                                 HudLayout.PILL -> "PILL"
                                 HudLayout.CARD -> "CARD"
                                 HudLayout.RIBBON -> "RIBBON"
+                                HudLayout.SPINE -> "SPINE"
                             },
                             color = ink
                         )
@@ -100,13 +102,38 @@ fun HudStudioPanel() {
         }
 
         Text(
+            "DOCK POSITION",
+            color = muted
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            val choices = if (config.layout == HudLayout.RIBBON)
+                listOf(HudDock.TOP, HudDock.BOTTOM)
+            else if (config.layout == HudLayout.SPINE)
+                listOf(HudDock.LEFT, HudDock.RIGHT)
+            else listOf(HudDock.AUTO)
+            choices.forEach { choice ->
+                FilterChip(
+                    modifier = Modifier.weight(1f),
+                    selected = config.dock == choice ||
+                        (config.dock == HudDock.AUTO && choice == choices.first()),
+                    onClick = { save(config.copy(dock = choice)) },
+                    label = { Text(choice.name, color = ink) }
+                )
+            }
+        }
+        Text(
+            "Visible metrics: max " + config.layout.metricLimit() +
+                " in this layout. Unsupported readings display —.",
+            color = muted
+        )
+        Text(
             String.format(Locale.US, "HUD SCALE   %.2f×", config.scale),
             color = ink
         )
         Slider(
             value = config.scale, onValueChange = {
                 save(config.copy(scale = it))
-            }, valueRange = .75f..1.30f
+            }, valueRange = .85f..1.25f
         )
         Text(
             String.format(Locale.US, "GLASS OPACITY   %d%%",

@@ -9,6 +9,10 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.hardware.input.InputManager
+import com.locutus5382.heimdall.engine.HudLayout
+import com.locutus5382.heimdall.engine.HudDock
+import com.locutus5382.heimdall.engine.ThermalIndicatorState
 import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
@@ -33,13 +37,15 @@ internal class HudOverlayController(private val app: Context) :
     private val wm = app.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private val store = HudProfileStore(app)
     private val main = Handler(Looper.getMainLooper())
-    private val history = HudTelemetryHistory(36)
+    private val history = HudTelemetryHistory(60)
     private var latest: RecorderStatus = RecorderStatus.Idle
     private var view: HeimdallCanvasView? = null
     private var params: WindowManager.LayoutParams? = null
     private var unlock: TextView? = null
     private var unlockParams: WindowManager.LayoutParams? = null
     private var activeSession = -1L
+    private var sessionObservedStartMs = 0L
+    private var hotSinceMs = 0L
     private var stopSent = false
     private var lastFailure = 0L
     private var disposed = false
@@ -55,17 +61,24 @@ internal class HudOverlayController(private val app: Context) :
         if (disposed) return
         latest = status
         val recording = status as? RecorderStatus.Recording
-        if (recording == null || !store.enabled() ||
-            !Settings.canDrawOverlays(app)) {
+        if (recording == null) {
             dismiss()
             return
         }
+        // Track the session even when its overlay is hidden. Hiding the HUD
+        // cannot restart the REC elapsed timer or create a second ring buffer.
         if (activeSession != recording.sessionId) {
             activeSession = recording.sessionId
+            sessionObservedStartMs = SystemClock.elapsedRealtime()
+            hotSinceMs = 0L
             stopSent = false
             history.clear()
         }
         history.add(recording.sessionId, recording.last)
+        if (!store.enabled() || !Settings.canDrawOverlays(app)) {
+            hideWindow()
+            return
+        }
         if (view == null && SystemClock.elapsedRealtime() - lastFailure > 3_000L) {
             create()
         }
@@ -93,6 +106,12 @@ internal class HudOverlayController(private val app: Context) :
                 override fun lock() { store.saveLock(true) }
                 override fun drag(dxPixels: Int, dyPixels: Int) = move(dxPixels, dyPixels)
                 override fun settle() = snap()
+                override fun drawError() {
+                    // An unsupported drawing path must not terminate the recording.
+                    Log.e("HeimdallHUD", "Repeated Canvas errors; disabling overlay")
+                    store.prefs.edit().putBoolean("hud_enabled", false).apply()
+                    dismiss()
+                }
             }
         )
         val p = WindowManager.LayoutParams(
@@ -117,6 +136,7 @@ internal class HudOverlayController(private val app: Context) :
                 if (right - left != oldRight - oldLeft ||
                     bottom - top != oldBottom - oldTop) {
                     clamp()
+                    alignDock(store.read())
                     updateWindow()
                     positionUnlock()
                 }
@@ -124,6 +144,7 @@ internal class HudOverlayController(private val app: Context) :
             canvas.post {
                 if (view === canvas) {
                     clamp()
+                    alignDock(store.read())
                     updateWindow()
                     syncLock(store.read())
                 }
@@ -140,8 +161,39 @@ internal class HudOverlayController(private val app: Context) :
         val recording = latest as? RecorderStatus.Recording ?: return
         val config = store.read()
         val v = view ?: return
+        val t = recording.last?.batteryTemperatureC
+        val now = SystemClock.elapsedRealtime()
+        val thermal = when {
+            t == null || !t.isFinite() -> {
+                hotSinceMs = 0L
+                ThermalIndicatorState.NOMINAL
+            }
+            t > 42.0 -> {
+                if (hotSinceMs == 0L) hotSinceMs = now
+                if (now - hotSinceMs >= 15_000L)
+                    ThermalIndicatorState.SUSTAINED_HIGH_BATTERY_TEMP
+                else ThermalIndicatorState.ELEVATED_TEMP
+            }
+            t >= 38.0 -> {
+                hotSinceMs = 0L
+                ThermalIndicatorState.ELEVATED_TEMP
+            }
+            else -> {
+                hotSinceMs = 0L
+                ThermalIndicatorState.NOMINAL
+            }
+        }
         v.update(config, recording.sessionId,
-            recording.last, history.snapshot(), saving = stopSent)
+            recording.last, history.snapshot(), saving = stopSent,
+            elapsedMs = now - sessionObservedStartMs,
+            thermal = thermal)
+        val originalX = params?.x
+        val originalY = params?.y
+        alignDock(config)
+        if (originalX != params?.x || originalY != params?.y) {
+            updateWindow()
+            positionUnlock()
+        }
         syncLock(config)
     }
 
@@ -160,6 +212,30 @@ internal class HudOverlayController(private val app: Context) :
             v.invalidate()
             draw()
             Log.w("HeimdallHUD", "STOP dispatch rejected; button restored", e)
+        }
+    }
+
+    /**
+     * Bezel layouts always stay at a real edge. Floating layouts retain the
+     * previous snap-to-side behavior. No second overlay is created.
+     */
+    private fun alignDock(config: HudProfile) {
+        val p = params ?: return
+        val (w, h) = dimensions()
+        if (w <= 0 || h <= 0) return
+        val screen = app.resources.displayMetrics
+        when (config.layout) {
+            HudLayout.RIBBON -> {
+                p.x = max(0, (screen.widthPixels - w) / 2)
+                p.y = if (config.dock == HudDock.BOTTOM)
+                    max(0, screen.heightPixels - h) else 0
+            }
+            HudLayout.SPINE -> {
+                p.x = if (config.dock == HudDock.RIGHT)
+                    max(0, screen.widthPixels - w) else 0
+                p.y = max(0, (screen.heightPixels - h) / 2)
+            }
+            else -> return
         }
     }
 
@@ -209,14 +285,31 @@ internal class HudOverlayController(private val app: Context) :
         val p = params ?: return
         clamp()
         val screen = app.resources.displayMetrics
-        val (width, _) = dimensions()
-        val left = dp(8)
-        val right = max(0, screen.widthPixels - width - dp(8))
-        p.x = if (p.x + width / 2 < screen.widthPixels / 2) left else right
-        p.x = min(p.x, max(0, screen.widthPixels - width))
+        val (width, height) = dimensions()
+        val config = store.read()
+        when (config.layout) {
+            HudLayout.RIBBON -> {
+                val side = if (p.y + height / 2 < screen.heightPixels / 2)
+                    HudDock.TOP else HudDock.BOTTOM
+                store.save(config.copy(dock = side))
+                alignDock(store.read())
+            }
+            HudLayout.SPINE -> {
+                val side = if (p.x + width / 2 < screen.widthPixels / 2)
+                    HudDock.LEFT else HudDock.RIGHT
+                store.save(config.copy(dock = side))
+                alignDock(store.read())
+            }
+            else -> {
+                val left = dp(8)
+                val right = max(0, screen.widthPixels - width - dp(8))
+                p.x = if (p.x + width / 2 < screen.widthPixels / 2) left else right
+                p.x = min(p.x, max(0, screen.widthPixels - width))
+                store.savePosition(toDp(p.x), toDp(p.y))
+            }
+        }
         updateWindow()
         positionUnlock()
-        store.savePosition(toDp(p.x), toDp(p.y))
     }
 
     private fun syncLock(config: HudProfile) {
@@ -229,7 +322,13 @@ internal class HudOverlayController(private val app: Context) :
         // Android 12+ only allows touch pass-through under a qualifying
         // obscuring-opacity limit. Keep the locked main overlay below 0.8,
         // and position the small unlock target outside the HUD rectangle.
-        val newAlpha = if (config.locked) .72f else 1f
+        val maxOpacity = runCatching {
+            (app.getSystemService(Context.INPUT_SERVICE) as InputManager)
+                .maximumObscuringOpacityForTouch
+        }.getOrDefault(.8f)
+        val newAlpha = if (config.locked)
+            min(config.opacity, maxOpacity * .95f).coerceIn(.1f, .76f)
+        else 1f
         if (p.flags != newFlags || p.alpha != newAlpha) {
             p.flags = newFlags
             p.alpha = newAlpha
@@ -317,16 +416,22 @@ internal class HudOverlayController(private val app: Context) :
             .onFailure { Log.w("HeimdallHUD", "Unlock cleanup", it) }
     }
 
-    fun dismiss() {
+    private fun hideWindow() {
         removeUnlock()
         val current = view ?: return
         view = null
         params = null
-        stopSent = false
-        activeSession = -1L
-        history.clear()
         runCatching { wm.removeViewImmediate(current) }
             .onFailure { Log.w("HeimdallHUD", "Canvas cleanup", it) }
+    }
+
+    fun dismiss() {
+        hideWindow()
+        stopSent = false
+        activeSession = -1L
+        sessionObservedStartMs = 0L
+        hotSinceMs = 0L
+        history.clear()
     }
 
     fun dispose() {
