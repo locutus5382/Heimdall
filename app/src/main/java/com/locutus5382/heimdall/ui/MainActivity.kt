@@ -2,6 +2,8 @@ package com.locutus5382.heimdall.ui
 
 import android.Manifest
 import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -75,6 +77,24 @@ class MainActivity : ComponentActivity() {
         setContent {
             val state by RecorderStatusHub.state.collectAsState()
             var permissionProblem by remember { mutableStateOf(restoreProblem) }
+            val hudPrefs = remember {
+                getSharedPreferences("heimdall_ui_v1", MODE_PRIVATE)
+            }
+            var hudEnabled by remember {
+                mutableStateOf(hudPrefs.getBoolean("hud_enabled", false))
+            }
+            val toggleHud = {
+                if (!Settings.canDrawOverlays(this@MainActivity)) {
+                    startActivity(Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:$packageName")
+                    ))
+                } else {
+                    val next = !hudEnabled
+                    hudPrefs.edit().putBoolean("hud_enabled", next).apply()
+                    hudEnabled = next
+                }
+            }
             val notificationPermission = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestPermission()) { granted ->
                 if (granted) requestService(HeimdallRecorderService.START) {
@@ -104,7 +124,9 @@ class MainActivity : ComponentActivity() {
                 onPrimary = Ice, onSurface = Ice)) {
                 HeimdallDashboard(
                     state = state, issue = permissionProblem,
-                    onStart = start, onStop = stop)
+                    onStart = start, onStop = stop,
+                    hudEnabled = hudEnabled,
+                    onToggleHud = toggleHud)
             }
         }
     }
@@ -125,6 +147,8 @@ private fun HeimdallDashboard(
     issue: String?,
     onStart: () -> Unit,
     onStop: () -> Unit,
+    hudEnabled: Boolean,
+    onToggleHud: () -> Unit,
 ) {
     val recording = state as? RecorderStatus.Recording
     val attention = state as? RecorderStatus.NeedsAttention
@@ -196,6 +220,19 @@ private fun HeimdallDashboard(
                         fontWeight = FontWeight.Bold)
                 }
             }
+            OutlinedButton(
+                onClick = onToggleHud,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Text(
+                    if (hudEnabled) "IN-GAME HUD: ON · TAP TO DISABLE"
+                    else "ENABLE IN-GAME HUD / GRANT OVERLAY PERMISSION",
+                    color = Marigold
+                )
+            }
+            Text("Quick Settings: add Heimdall Record in Android's tile editor.",
+                color = Muted, fontSize = 12.sp)
             Text("LIVE TELEMETRY", fontSize = 13.sp,
                 fontWeight = FontWeight.Bold, color = Muted,
                 letterSpacing = 1.5.sp)
@@ -222,11 +259,14 @@ private fun HeimdallDashboard(
                     "$it MHz"
                 } ?: "—", Modifier.weight(1f))
             }
-            Text("FOUNDATION · 0.1.0", color = Marigold, fontSize = 12.sp,
+            SessionHistoryPanel(
+                refreshKey = (state as? RecorderStatus.Finished)?.sessionId ?: 0L
+            )
+            Text("HEIMDALL · PROTOTYPE 0.2", color = Marigold, fontSize = 12.sp,
                 fontWeight = FontWeight.Bold)
-            Text("This first build tests the native recording lifecycle and a new " +
-                "local database. HUD, Quick Settings, DUKO comparisons and exports " +
-                "are upcoming modules—not enabled in this build.",
+            Text("Native recording and local session CSV export. " +
+                "HUD and Quick Settings are prototype features under validation; " +
+                "DUKO comparisons and advanced telemetry remain future modules.",
                 color = Muted, fontSize = 13.sp)
         }
     }

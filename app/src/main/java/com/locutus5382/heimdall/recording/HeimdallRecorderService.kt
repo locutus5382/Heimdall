@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import com.locutus5382.heimdall.R
+import com.locutus5382.heimdall.ui.HeimdallTileService
 import com.locutus5382.heimdall.engine.NativeRecorderEngine
 import com.locutus5382.heimdall.engine.RecorderStatus
 import kotlinx.coroutines.CoroutineScope
@@ -34,9 +35,11 @@ class HeimdallRecorderService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var engine: NativeRecorderEngine
+    private lateinit var hud: HudOverlayController
 
     override fun onCreate() {
         super.onCreate()
+        hud = HudOverlayController(applicationContext)
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
             .createNotificationChannel(NotificationChannel(
                 CHANNEL_ID, getString(R.string.recorder_channel),
@@ -47,7 +50,20 @@ class HeimdallRecorderService : Service() {
         engine = NativeRecorderEngine(
             AndroidTelemetrySource(applicationContext),
             LocalRecordingStore(applicationContext), scope)
-        scope.launch { engine.status.collect { RecorderStatusHub.publish(it) } }
+        scope.launch {
+            var previousPhase: String? = null
+            engine.status.collect { state ->
+                RecorderStatusHub.publish(state)
+                hud.render(state)
+                val phase = state.javaClass.simpleName
+                if (phase != previousPhase) {
+                    previousPhase = phase
+                    runCatching {
+                        HeimdallTileService.notifyStatusChanged(applicationContext)
+                    }
+                }
+            }
+        }
         scope.launch { engine.inspectExisting() }
     }
 
@@ -131,6 +147,7 @@ class HeimdallRecorderService : Service() {
         runBlocking(Dispatchers.IO) {
             withTimeoutOrNull(3_000L) { engine.shutdownForServiceDeath() }
         }
+        hud.dismiss()
         scope.cancel()
         super.onDestroy()
     }
