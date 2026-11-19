@@ -20,6 +20,20 @@ data class SavedSession(
 class SessionArchive(context: Context) {
     private val path = context.applicationContext.getDatabasePath("heimdall_v1.db")
 
+    /** Read-only safety check used by Quick Settings after process recreation. */
+    suspend fun unfinishedSessionId(): Long? = withContext(Dispatchers.IO) {
+        if (!path.isFile) return@withContext null
+        SQLiteDatabase.openDatabase(path.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
+            .use { database ->
+                database.rawQuery(
+                    "SELECT id FROM sessions WHERE status='RECORDING' ORDER BY id LIMIT 1",
+                    null
+                ).use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getLong(0) else null
+                }
+            }
+    }
+
     suspend fun recent(limit: Int = 20): List<SavedSession> = withContext(Dispatchers.IO) {
         if (!path.isFile) return@withContext emptyList()
         val count = limit.coerceIn(1, 100)
