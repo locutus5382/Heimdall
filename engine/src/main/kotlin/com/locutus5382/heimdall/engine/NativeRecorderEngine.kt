@@ -66,7 +66,22 @@ class NativeRecorderEngine(
             } catch (_: Exception) { 0L }
             _status.value = RecorderStatus.Finished(recovered, count)
         } else {
-            _status.value = RecorderStatus.NeedsAttention(existing, "UNFINISHED_SESSION")
+            // The new service owns no sampler: an unambiguous orphan can be
+            // sealed as INTERRUPTED at its last observed sample timestamp.
+            val interrupted = try {
+                persistence.recoverInterruptedSession()
+            } catch (_: Exception) { null }
+            if (interrupted != null) {
+                val count = try {
+                    persistence.sampleCount(interrupted)
+                } catch (_: Exception) { 0L }
+                _status.value = RecorderStatus.Finished(
+                    interrupted, count, reason = "INTERRUPTED"
+                )
+            } else {
+                _status.value =
+                    RecorderStatus.NeedsAttention(existing, "UNFINISHED_SESSION")
+            }
         }
         _status.value
     }
