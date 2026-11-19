@@ -16,11 +16,13 @@ import kotlinx.coroutines.withContext
  * The engine never accesses this preference store, and stored user tags are
  * NEVER promoted to automatically verified hardware measurements.
  */
-internal class DukoSessionContextStore(context: Context) {
+internal class DukoSessionContextStore(
+    context: Context, private val databaseName: String = HeimdallDatabase.NAME
+) {
     private val app = context.applicationContext
     private val prefs = app.getSharedPreferences(
         "duko_next_session_v1", Context.MODE_PRIVATE)
-    private val helper by lazy { HeimdallDatabase.helper(app) }
+    private val helper by lazy { HeimdallDatabase.helper(app, databaseName) }
 
     fun readDraft(): DukoSessionContext = DukoSessionContext(
         game = prefs.getString("game", "").orEmpty(),
