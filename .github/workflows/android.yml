@@ -7,6 +7,11 @@ on:
     branches: [main, 'feature/**', 'fix/**']
   workflow_dispatch:
 
+# A new hardening commit supersedes obsolete test runs for the same branch.
+concurrency:
+  group: heimdall-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   android:
     name: Android build and engine tests
