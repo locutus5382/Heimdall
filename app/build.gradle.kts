@@ -8,9 +8,9 @@ android {
     defaultConfig {
         applicationId = "com.locutus5382.heimdall"
         minSdk = 31
-        targetSdk = 35
-        versionCode = 6
-        versionName = "0.5.0-m4-alpha"
+        targetSdk = 36
+        versionCode = 7
+        versionName = "0.6.0-h1-h4-qa"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildTypes {
