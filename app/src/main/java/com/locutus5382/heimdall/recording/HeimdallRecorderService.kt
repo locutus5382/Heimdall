@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.IBinder
 import com.locutus5382.heimdall.R
 import com.locutus5382.heimdall.ui.HeimdallTileService
+import com.locutus5382.heimdall.ui.MainActivity
 import com.locutus5382.heimdall.engine.NativeRecorderEngine
 import com.locutus5382.heimdall.engine.RecorderStatus
 import kotlinx.coroutines.CoroutineScope
@@ -152,9 +153,16 @@ class HeimdallRecorderService : Service() {
         val stop = Intent(this, HeimdallRecorderService::class.java).setAction(STOP)
         val stopIntent = PendingIntent.getService(this, 2, stop,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val dashboard = PendingIntent.getActivity(
+            this, 1,
+            Intent(this, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("HEIMDALL · Device telemetry")
             .setContentText(message)
+            .setContentIntent(dashboard)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
