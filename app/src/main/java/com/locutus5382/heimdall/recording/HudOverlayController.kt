@@ -7,6 +7,7 @@ import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.provider.Settings
+import android.os.SystemClock
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
@@ -35,6 +36,7 @@ internal class HudOverlayController(private val app: Context) {
     private var dot: TextView? = null
     private var gpu: TextView? = null
     private var temperature: TextView? = null
+    private var hotSinceMs: Long? = null
 
     fun render(status: RecorderStatus) {
         if (status !is RecorderStatus.Recording ||
@@ -51,9 +53,26 @@ internal class HudOverlayController(private val app: Context) {
             "BAT $it%"
         } ?: "BAT —"
         gpu?.text = status.last?.gpuClockMHz?.let { "GPU $it MHz" } ?: "GPU —"
-        temperature?.text = status.last?.batteryTemperatureC?.let {
+        val t = status.last?.batteryTemperatureC
+        temperature?.text = t?.let {
             String.format(Locale.US, "T %.1f°C", it)
         } ?: "T —"
+        val now = SystemClock.elapsedRealtime()
+        val warning = when {
+            t == null -> { hotSinceMs = null; Color.rgb(234, 241, 255) }
+            t > 42.0 -> {
+                if (hotSinceMs == null) hotSinceMs = now
+                if (now - (hotSinceMs ?: now) >= 15_000L)
+                    Color.rgb(255, 132, 69)
+                else Color.rgb(242, 169, 0)
+            }
+            t >= 38.0 -> {
+                hotSinceMs = null
+                Color.rgb(242, 169, 0)
+            }
+            else -> { hotSinceMs = null; Color.rgb(234, 241, 255) }
+        }
+        temperature?.setTextColor(warning)
         dot?.text = "●"
     }
 
@@ -203,6 +222,7 @@ internal class HudOverlayController(private val app: Context) {
     fun dismiss() {
         val current = view ?: return
         view = null
+        hotSinceMs = null
         dot?.clearAnimation()
         dot = null
         cpu = null
