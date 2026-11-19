@@ -54,15 +54,17 @@ class DukoThermalTest {
     }
 
     @Test fun sensorChangesNeverJoinSeparateThermalBaselines() {
-        val readings = (0..5).map { temp(it * 30_000L, 33.0, "A") } +
-            (6..10).map { temp(it * 30_000L, 42.0, "B") }
+        val readings = (0..8).map { temp(it * 30_000L, 33.0, "A") } +
+            (9..14).map { temp(it * 30_000L, 42.0, "B") }
         val r = DukoThermal.analyze(
             DukoMetric.BATTERY_TEMPERATURE,
-            DukoWindow(0, 300_000), readings,
+            DukoWindow(0, 420_000), readings,
             expectedCadenceMs = 30_000L
         )
-        assertEquals(150_000L, r.continuousSegmentMs)
-        assertNotNull(r.warmingSlopeCPerMinute)
+        // The first stable sensor runs for four minutes. The step to the
+        // second sensor must not produce a fictitious heating slope.
+        assertEquals(240_000L, r.continuousSegmentMs)
+        assertEquals(0.0, r.warmingSlopeCPerMinute!!, 1e-9)
         assertEquals(DukoEvidence.QUALIFIED, r.evidence)
         assertTrue("SENSOR_SOURCE_CHANGED" in r.warnings)
     }
