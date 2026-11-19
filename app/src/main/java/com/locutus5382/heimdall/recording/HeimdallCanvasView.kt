@@ -42,6 +42,8 @@ internal class HeimdallCanvasView(
     }
 
     private val density = resources.displayMetrics.density
+    private val labelFace: Typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+    private val numberFace: Typeface = Typeface.MONOSPACE
     private val fontFactor = resources.configuration.fontScale
     private val layoutEngine = HudLayoutEngine(fontFactor)
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -160,8 +162,7 @@ internal class HeimdallCanvasView(
         paint.style = Paint.Style.FILL
         paint.color = color
         paint.textSize = sp * fontFactor
-        paint.typeface = if (numeric) Typeface.MONOSPACE
-            else Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        paint.typeface = if (numeric) numberFace else labelFace
         paint.textAlign = Paint.Align.LEFT
         canvas.drawText(value, x, baseline, paint)
     }
@@ -217,7 +218,7 @@ internal class HeimdallCanvasView(
     }
 
     private fun drawHeader(canvas: Canvas, g: HudGeometry) {
-        val rec = if (state.saving) "SAVING" else "● REC " + state.elapsedLabel
+        val rec = state.recordingLabel
         when (profile.layout) {
             HudLayout.CARD -> {
                 label(canvas, "HEIMDALL", 16f, 31f, 13f, ice)
@@ -312,16 +313,17 @@ internal class HeimdallCanvasView(
         label(canvas, if (menuExpanded) "×" else "≡",
             g.menu.centerX() - 7f, g.menu.centerY() + 6f, 20f, signal)
         if (!menuExpanded) return
-        val targets = arrayOf(g.mode, g.lock, g.stop)
-        val names = arrayOf("MODE", "LOCK", if (state.saving) "SAVE" else "STOP")
-        targets.forEachIndexed { i, target ->
-            rect(canvas, target, 10f,
-                if (i == 2) Color.argb(204, 77, 43, 68)
-                else Color.argb(198, 29, 54, 90))
-            label(canvas, names[i], target.left + 5f,
-                target.centerY() + 4f, 10f,
-                if (i == 2) coral else signal)
-        }
+        drawAction(canvas, g.mode, "MODE", false)
+        drawAction(canvas, g.lock, "LOCK", false)
+        drawAction(canvas, g.stop, if (state.saving) "SAVE" else "STOP", true)
+    }
+
+    private fun drawAction(canvas: Canvas, r: RectF, label: String, dangerous: Boolean) {
+        rect(canvas, r, 10f,
+            if (dangerous) Color.argb(204, 77, 43, 68)
+            else Color.argb(198, 29, 54, 90))
+        label(canvas, label, r.left + 5f, r.centerY() + 4f, 10f,
+            if (dangerous) coral else signal)
     }
 
     override fun onDraw(canvas: Canvas) {
