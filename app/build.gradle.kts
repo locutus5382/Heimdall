@@ -37,7 +37,7 @@ android {
             isShrinkResources = true
             signingConfig = signingConfigs.getByName("debug")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro")
+                "proguard-rules.pro", "lean-instrumentation-abi.pro")
             matchingFallbacks += listOf("debug")
         }
     }
