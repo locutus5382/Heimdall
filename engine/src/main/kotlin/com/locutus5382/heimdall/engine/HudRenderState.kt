@@ -17,6 +17,7 @@ data class HudReadout(
 data class HudRenderState(
     val sessionId: Long,
     val elapsedLabel: String,
+    val recordingLabel: String,
     val readouts: List<HudReadout>,
     val cpuHistory: List<HudTelemetryHistory.Point>,
     val thermal: ThermalIndicatorState,
@@ -75,7 +76,8 @@ data class HudRenderState(
                             ?.let { "$it MiB" } ?: "—", null)
                 }
             }
-            return HudRenderState(sessionId, time, fields,
+            return HudRenderState(sessionId, time,
+                if (saving) "SAVING" else "● REC $time", fields,
                 history.takeLast(60), thermal, saving)
         }
     }
