@@ -34,6 +34,7 @@ sealed interface RecorderStatus {
         val sessionId: Long,
         val persistedSamples: Long,
         val last: DeviceSample? = null,
+        val startedElapsedMs: Long? = null,
     ) : RecorderStatus
     data class Stopping(val sessionId: Long) : RecorderStatus
     data class Saving(val sessionId: Long) : RecorderStatus
@@ -66,6 +67,8 @@ interface RecordingPersistence {
     suspend fun recoverInterruptedSession(): Long? = null
     /** Creates one session row and its matching recovery lease. */
     suspend fun begin(): Long
+    /** Same monotonic origin stored durably with the session. */
+    suspend fun sessionStartElapsedMs(sessionId: Long): Long? = null
     suspend fun append(sessionId: Long, sample: DeviceSample): Boolean
     /** Adapter for older fake stores. The SQLite implementation overrides
      * this to distinguish stopped sessions from transient write failures. */
