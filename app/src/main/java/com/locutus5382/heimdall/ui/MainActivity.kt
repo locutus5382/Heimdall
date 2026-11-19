@@ -248,6 +248,7 @@ private fun HeimdallDashboard(
                     color = Marigold
                 )
             }
+            HudStudioPanel()
             Text("Quick Settings: add Heimdall Record in Android's tile editor.",
                 color = Muted, fontSize = 12.sp)
             Text("LIVE TELEMETRY", fontSize = 13.sp,
