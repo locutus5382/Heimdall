@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.res.Configuration
 import android.content.Intent
 import android.os.IBinder
 import com.locutus5382.heimdall.R
@@ -169,6 +170,11 @@ class HeimdallRecorderService : Service() {
             .addAction(Notification.Action.Builder(
                 android.R.drawable.ic_media_pause, "STOP / Retry", stopIntent).build())
             .build()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        hud.realign()
     }
 
     override fun onDestroy() {
