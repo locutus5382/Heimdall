@@ -112,6 +112,15 @@ internal class HudOverlayController(private val app: Context) :
             wm.addView(canvas, p)
             view = canvas
             params = p
+            canvas.addOnLayoutChangeListener { _, left, top, right, bottom,
+                                               oldLeft, oldTop, oldRight, oldBottom ->
+                if (right - left != oldRight - oldLeft ||
+                    bottom - top != oldBottom - oldTop) {
+                    clamp()
+                    updateWindow()
+                    positionUnlock()
+                }
+            }
             canvas.post {
                 if (view === canvas) {
                     clamp()
@@ -161,6 +170,19 @@ internal class HudOverlayController(private val app: Context) :
         clamp()
         updateWindow()
         positionUnlock()
+    }
+
+    /** Called when the device changes orientation or display geometry. */
+    fun realign() {
+        val current = view ?: return
+        current.requestLayout()
+        current.post {
+            if (view === current) {
+                clamp()
+                updateWindow()
+                positionUnlock()
+            }
+        }
     }
 
     private fun dimensions(): Pair<Int, Int> {
