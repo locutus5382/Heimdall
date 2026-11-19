@@ -127,9 +127,7 @@ jobs:
             gradle :app:connectedDebugAndroidTest --no-daemon --stacktrace
             # Mapped to the optimized app, not a debug APK installed afterward.
             # R8 errors in Service/SQLite/reflection must fail the quality gate.
-            gradle :app:connectedAndroidTest \
-              -PheimdallAndroidTestBuildType=leanDebug \
-              --no-daemon --stacktrace
+            gradle :app:connectedAndroidTest -PheimdallAndroidTestBuildType=leanDebug --no-daemon --stacktrace
             adb install -r app/build/outputs/apk/leanDebug/app-leanDebug.apk
             adb shell am force-stop com.locutus5382.heimdall
             adb shell am start -n com.locutus5382.heimdall/.ui.MainActivity
