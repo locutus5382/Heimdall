@@ -180,12 +180,16 @@ private fun HeimdallDashboard(
         is RecorderStatus.Recording -> "Recording telemetry"
         is RecorderStatus.Stopping -> "Securing STOP"
         is RecorderStatus.Saving -> "Finalizing session"
-        is RecorderStatus.Finished -> "Session saved"
+        is RecorderStatus.Finished ->
+            if (state.reason == "INTERRUPTED") "Session recovered · interrupted"
+            else "Session saved"
         is RecorderStatus.NeedsAttention -> "Review required"
     }
     val subtitle = when (state) {
         is RecorderStatus.NeedsAttention -> state.code
-        is RecorderStatus.Finished -> "${state.samples} samples saved locally"
+        is RecorderStatus.Finished ->
+            "${state.samples} samples saved locally" +
+                if (state.reason == "INTERRUPTED") " · partial recording" else ""
         is RecorderStatus.Recording -> "${state.persistedSamples} samples on disk"
         else -> "Offline · Read-only · No root"
     }
