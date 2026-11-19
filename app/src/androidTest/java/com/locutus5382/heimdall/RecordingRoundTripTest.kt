@@ -120,7 +120,7 @@ class RecordingRoundTripTest {
             }
             db.rawQuery("PRAGMA user_version", null).use { cursor ->
                 assertTrue(cursor.moveToFirst())
-                assertEquals(3, cursor.getInt(0))
+                assertEquals(4, cursor.getInt(0))
             }
             db.rawQuery(
                 "SELECT stop_requested_at_ms FROM sessions WHERE id=?",
