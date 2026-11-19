@@ -72,36 +72,34 @@ class RuntimeDiagnostics(context: Context) {
         line("CPU pressure readable", readable("/proc/pressure/cpu"))
         line("Memory pressure readable", readable("/proc/pressure/memory"))
 
-        val cpuPolicies = runCatching {
-            File("/sys/devices/system/cpu/cpufreq").listFiles()
-                ?.filter { it.name.matches(Regex("policy[0-9]+")) }
-                ?.sortedBy { it.name.removePrefix("policy").toIntOrNull() ?: 999 }
-                .orEmpty()
-        }.getOrDefault(emptyList())
-        line("CPU policies discovered", cpuPolicies.size)
-        line("CPU clock paths readable",
-            cpuPolicies.count { readable("${it.absolutePath}/scaling_cur_freq") })
-        line("CPU policy names",
-            cpuPolicies.take(12).joinToString(", ") { it.name }
-                .ifEmpty { "unavailable" })
-
-        val kgsl = listOf(
-            "/sys/class/kgsl/kgsl-3d0/devfreq/cur_freq",
-            "/sys/class/kgsl/kgsl-3d0/gpuclk"
-        )
-        val devfreq = runCatching {
-            File("/sys/class/devfreq").listFiles()
-                ?.filter {
-                    val name = it.name.lowercase()
-                    name.contains("gpu") || name.contains("mali") ||
-                        name.contains("kgsl")
-                }
-                ?.map { "${it.absolutePath}/cur_freq" }
-                .orEmpty()
-        }.getOrDefault(emptyList())
-        val gpuPaths = (kgsl + devfreq).distinct()
-        line("GPU clock path readable",
-            gpuPaths.firstOrNull(::readable) ?: "unavailable")
+        // Exactly the same discovered handles used by AndroidTelemetrySource.
+        val catalog = SensorCatalog.get(app)
+        line("SoC", catalog.soc)
+        line("Total RAM MiB", catalog.totalMemoryMiB)
+        line("CPU policies discovered", catalog.cpuPolicies.size)
+        line("CPU clock paths readable", catalog.clocksMHz().size)
+        line("CPU policy topology", catalog.cpuPolicies.joinToString("; ") {
+            "${it.id} (cores ${it.cores})"
+        }.ifBlank { "unavailable" })
+        line("CPU current MHz", catalog.clocksMHz().entries.joinToString {
+            "${it.key}=${it.value}"
+        }.ifEmpty { "unavailable" })
+        line("CPU policy max MHz", catalog.limitsMHz().entries.joinToString {
+            "${it.key}=${it.value}"
+        }.ifEmpty { "unavailable" })
+        line("CPU hardware max MHz", catalog.siliconLimitsMHz().entries.joinToString {
+            "${it.key}=${it.value}"
+        }.ifEmpty { "unavailable" })
+        line("GPU clock path", catalog.gpuClockNodes.firstOrNull()?.absolutePath)
+        line("GPU clock MHz", catalog.gpuClockMHz())
+        line("GPU utilization source", catalog.gpuBusyNodes.firstOrNull()?.absolutePath)
+        line("GPU utilization %", catalog.gpuUtilization())
+        line("Readable thermal zones", catalog.thermalZones.size)
+        line("CPU temperature source", catalog.cpuTemperatureNode?.type)
+        line("GPU temperature source", catalog.gpuTemperatureNode?.type)
+        line("CPU temperature C", catalog.cpuTemperatureC())
+        line("GPU temperature C", catalog.gpuTemperatureC())
+        line("Battery rated Wh", "not provided by public API")
 
         val dbFile = app.getDatabasePath(HeimdallDatabase.NAME)
         line("SQLite database present", dbFile.isFile)
