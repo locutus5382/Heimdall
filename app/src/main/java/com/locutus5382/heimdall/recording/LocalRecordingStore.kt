@@ -2,8 +2,9 @@ package com.locutus5382.heimdall.recording
 
 import android.content.ContentValues
 import android.content.Context
+import android.os.Build
+import android.os.SystemClock
 import android.database.sqlite.SQLiteDatabase
-import android.database.sqlite.SQLiteOpenHelper
 import com.locutus5382.heimdall.engine.DeviceSample
 import com.locutus5382.heimdall.engine.AppendOutcome
 import com.locutus5382.heimdall.engine.RecordingPersistence
@@ -19,69 +20,10 @@ import kotlinx.coroutines.withContext
  */
 internal class LocalRecordingStore(
     context: Context,
-    private val databaseName: String = "heimdall_v1.db"
+    private val databaseName: String = HeimdallDatabase.NAME
 ) : RecordingPersistence {
     private val app = context.applicationContext
-    private val legacyLease = app.getSharedPreferences(
-        "heimdall_recorder_lease_v1", Context.MODE_PRIVATE
-    )
-
-    private val db = object : SQLiteOpenHelper(app, databaseName, null, 2) {
-        override fun onConfigure(database: SQLiteDatabase) {
-            super.onConfigure(database)
-            database.setForeignKeyConstraintsEnabled(true)
-        }
-
-        override fun onCreate(database: SQLiteDatabase) {
-            database.execSQL("""
-                CREATE TABLE sessions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    started_at_ms INTEGER NOT NULL,
-                    ended_at_ms INTEGER,
-                    stop_requested_at_ms INTEGER,
-                    status TEXT NOT NULL CHECK(status IN ('RECORDING','COMPLETED'))
-                )
-            """.trimIndent())
-            database.execSQL("""
-                CREATE TABLE samples (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_id INTEGER NOT NULL,
-                    time_ms INTEGER NOT NULL,
-                    cpu_load_pct REAL,
-                    battery_pct INTEGER,
-                    battery_temp_c REAL,
-                    free_memory_mib INTEGER,
-                    cpu_clock_mhz INTEGER,
-                    gpu_clock_mhz INTEGER,
-                    FOREIGN KEY(session_id) REFERENCES sessions(id)
-                )
-            """.trimIndent())
-            database.execSQL("CREATE INDEX samples_session_idx ON samples(session_id, id)")
-            database.execSQL("CREATE INDEX sessions_state_idx ON sessions(status, id)")
-        }
-
-        override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-            if (oldVersion != 1 || newVersion != 2) {
-                throw IllegalStateException("UNSUPPORTED_MIGRATION_${oldVersion}_${newVersion}")
-            }
-            database.execSQL("ALTER TABLE sessions ADD COLUMN stop_requested_at_ms INTEGER")
-            database.execSQL("CREATE INDEX sessions_state_idx ON sessions(status, id)")
-            // Import only a *durably committed* v1 STOP. Never infer STOP from
-            // a stale lease, a missing key, or a completed recording.
-            if (legacyLease.getBoolean("active", false) &&
-                legacyLease.getBoolean("stop_requested", false)) {
-                val oldId = legacyLease.getLong("id", -1L)
-                if (oldId > 0) {
-                    database.execSQL(
-                        """UPDATE sessions SET stop_requested_at_ms=?
-                           WHERE id=? AND status='RECORDING'
-                             AND stop_requested_at_ms IS NULL""",
-                        arrayOf(System.currentTimeMillis(), oldId)
-                    )
-                }
-            }
-        }
-    }
+    private val db = HeimdallDatabase.helper(app, databaseName)
 
     /** Any open row, including a crashed v1 row, blocks a replacement START. */
     override suspend fun unresolvedSessionId(): Long? = withContext(Dispatchers.IO) {
@@ -118,6 +60,13 @@ internal class LocalRecordingStore(
             check(!existing) { "UNFINISHED_SESSION" }
             val id = database.insertOrThrow("sessions", null, ContentValues().apply {
                 put("started_at_ms", System.currentTimeMillis())
+                put("started_elapsed_ms", SystemClock.elapsedRealtime())
+                put("device_model", "${Build.MANUFACTURER} ${Build.MODEL}")
+                put("android_sdk", Build.VERSION.SDK_INT)
+                put("app_version", runCatching {
+                    app.packageManager.getPackageInfo(app.packageName, 0).versionName
+                }.getOrNull())
+                put("sample_interval_ms", 2000)
                 put("status", "RECORDING")
             })
             check(id > 0L) { "SESSION_CREATE_FAILED" }
@@ -152,6 +101,14 @@ internal class LocalRecordingStore(
                 sample.availableMemoryMiB?.let { put("free_memory_mib", it) }
                 sample.cpuClockMHz?.let { put("cpu_clock_mhz", it) }
                 sample.gpuClockMHz?.let { put("gpu_clock_mhz", it) }
+                sample.observedElapsedMs?.let { put("elapsed_ms", it) }
+                sample.thermalStatus?.let { put("thermal_status", it) }
+                sample.thermalHeadroom?.takeIf { it.isFinite() }
+                    ?.let { put("thermal_headroom", it) }
+                sample.batteryCurrentUa?.let { put("battery_current_ua", it) }
+                sample.batteryVoltageMv?.let { put("battery_voltage_mv", it) }
+                sample.batteryPlugged?.let { put("battery_plugged", if (it) 1 else 0) }
+                sample.gpuLoadPercent?.let { put("gpu_load_pct", it) }
             }
             val saved = database.insertOrThrow("samples", null, row) > 0L
             if (saved) database.setTransactionSuccessful()
@@ -193,26 +150,35 @@ internal class LocalRecordingStore(
         database.beginTransaction()
         try {
             val status = database.rawQuery(
-                "SELECT status, stop_requested_at_ms FROM sessions WHERE id=? LIMIT 1",
+                """SELECT status, started_at_ms, stop_requested_at_ms
+                   FROM sessions WHERE id=? LIMIT 1""",
                 arrayOf(sessionId.toString())
             ).use { cursor ->
-                if (cursor.moveToFirst())
-                    cursor.getString(0) to !cursor.isNull(1)
-                else null
+                if (!cursor.moveToFirst()) null else Triple(
+                    cursor.getString(0),
+                    cursor.getLong(1),
+                    if (cursor.isNull(2)) null else cursor.getLong(2)
+                )
             }
             val completed = when {
                 status == null -> false
-                status.first == "COMPLETED" -> true // Preserve the original end time.
-                status.first != "RECORDING" || !status.second -> false
-                else -> database.update(
-                    "sessions",
-                    ContentValues().apply {
-                        put("status", "COMPLETED")
-                        put("ended_at_ms", System.currentTimeMillis())
-                    },
-                    "id=? AND status='RECORDING' AND stop_requested_at_ms IS NOT NULL",
-                    arrayOf(sessionId.toString())
-                ) == 1
+                status.first == "COMPLETED" -> true // Immutable prior finalization.
+                status.first != "RECORDING" || status.third == null -> false
+                else -> {
+                    val total = countSamples(database, sessionId)
+                    database.update(
+                        "sessions",
+                        ContentValues().apply {
+                            put("status", "COMPLETED")
+                            // Preserve durable STOP time, not next-day recovery.
+                            put("ended_at_ms", maxOf(status.second, status.third))
+                            put("end_reason", "COMPLETED")
+                            put("sample_count", total)
+                        },
+                        "id=? AND status='RECORDING' AND stop_requested_at_ms IS NOT NULL",
+                        arrayOf(sessionId.toString())
+                    ) == 1
+                }
             }
             if (completed) database.setTransactionSuccessful()
             completed
@@ -220,6 +186,60 @@ internal class LocalRecordingStore(
             database.endTransaction()
         }
     }
+
+    /**
+     * Called only from an engine which owns no running sampler, on cold
+     * restoration. Never silently treats lost sampling as normal completion.
+     */
+    override suspend fun recoverInterruptedSession(): Long? =
+        withContext(Dispatchers.IO) {
+            val database = db.writableDatabase
+            database.beginTransaction()
+            try {
+                val open = database.rawQuery(
+                    """SELECT id, started_at_ms FROM sessions
+                       WHERE status='RECORDING' ORDER BY id""", null
+                ).use { cursor ->
+                    if (!cursor.moveToFirst()) null
+                    else {
+                        val id = cursor.getLong(0)
+                        val start = cursor.getLong(1)
+                        if (cursor.moveToNext()) null else id to start
+                    }
+                } ?: return@withContext null
+                val id = open.first
+                val lastSample = database.rawQuery(
+                    "SELECT MAX(time_ms) FROM samples WHERE session_id=?",
+                    arrayOf(id.toString())
+                ).use { cur ->
+                    if (cur.moveToFirst() && !cur.isNull(0)) cur.getLong(0) else null
+                }
+                val total = countSamples(database, id)
+                val changed = database.update(
+                    "sessions",
+                    ContentValues().apply {
+                        put("status", "COMPLETED")
+                        put("ended_at_ms", maxOf(open.second, lastSample ?: open.second))
+                        put("end_reason", "INTERRUPTED")
+                        put("sample_count", total)
+                    },
+                    "id=? AND status='RECORDING' AND stop_requested_at_ms IS NULL",
+                    arrayOf(id.toString())
+                ) == 1
+                if (changed) {
+                    database.setTransactionSuccessful()
+                    id
+                } else null // Durable STOP may have been committed meanwhile.
+            } finally {
+                database.endTransaction()
+            }
+        }
+
+    private fun countSamples(database: SQLiteDatabase, id: Long): Long =
+        database.rawQuery("SELECT COUNT(*) FROM samples WHERE session_id=?",
+            arrayOf(id.toString())).use { cur ->
+            if (cur.moveToFirst()) cur.getLong(0) else 0L
+        }
 
     override suspend fun sampleCount(sessionId: Long): Long = withContext(Dispatchers.IO) {
         db.readableDatabase.rawQuery(
