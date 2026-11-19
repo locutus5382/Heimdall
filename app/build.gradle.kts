@@ -9,13 +9,30 @@ android {
         applicationId = "com.locutus5382.heimdall"
         minSdk = 31
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.4.0-hud2-alpha"
+        versionCode = 6
+        versionName = "0.5.0-m4-alpha"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildTypes {
-        release {
-            isMinifyEnabled = false
+        getByName("release") {
+            // Production builds use R8; keep the separately signed release
+            // workflow distinct from CI's temporary debug test certificate.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro")
+        }
+        create("leanDebug") {
+            // Installable, R8-optimized QA APK signed by the normal debug key.
+            // Never distribute it as a release; GitHub runners rotate keys.
+            initWith(getByName("debug"))
+            isDebuggable = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.getByName("debug")
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro")
+            matchingFallbacks += listOf("debug")
         }
     }
     compileOptions {
