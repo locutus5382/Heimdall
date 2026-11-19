@@ -69,6 +69,10 @@ dependencies {
     // AndroidJUnitRunner invokes androidx.tracing.Trace before any test runs.
     // Match the runtime-constrained AndroidX Activity 1.9.1 version; test R8\n    // keeps the instrumentation implementation via test-proguard-rules.pro.
     androidTestImplementation("androidx.tracing:tracing:1.0.0")
+    // The optimized app strips unused Kotlin runtime classes, while the
+    // separately minified AndroidX instrumentation runner still needs LazyKt.
+    // Keep the test APK self-contained rather than disabling app shrinking.
+    androidTestImplementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.25")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }
