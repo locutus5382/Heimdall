@@ -23,6 +23,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.locutus5382.heimdall.engine.duko.DukoMetric
+import com.locutus5382.heimdall.recording.DukoFoundationReport
 import com.locutus5382.heimdall.recording.SavedSession
 import com.locutus5382.heimdall.recording.SessionArchive
 import com.locutus5382.heimdall.recording.SessionOverview
@@ -49,6 +51,7 @@ fun SessionHistoryPanel(refreshKey: Long) {
     var exportTarget by remember { mutableStateOf<Long?>(null) }
     var expandedId by remember { mutableStateOf<Long?>(null) }
     var details by remember { mutableStateOf<SessionOverview?>(null) }
+    var foundation by remember { mutableStateOf<DukoFoundationReport?>(null) }
     var reading by remember { mutableStateOf(false) }
 
     val chooser = rememberLauncherForActivityResult(
@@ -114,13 +117,16 @@ fun SessionHistoryPanel(refreshKey: Long) {
                             if (expandedId == session.id) {
                                 expandedId = null
                                 details = null
+                                foundation = null
                             } else {
                                 expandedId = session.id
                                 details = null
+                                foundation = null
                                 reading = true
                                 scope.launch {
                                     try {
                                         details = archive.overview(session.id)
+                                        foundation = archive.dukoFoundation(session.id)
                                     } catch (e: Exception) {
                                         notice = "Summary unavailable: " + e.javaClass.simpleName
                                     } finally {
@@ -167,6 +173,44 @@ fun SessionHistoryPanel(refreshKey: Long) {
                                 "Unavailable sensors are not interpreted as zero.",
                             color = Subtle
                         )
+                        val duko = foundation
+                        if (duko != null) {
+                            Text("DUKO FOUNDATION · DATA INTEGRITY", color = Amber)
+                            Text(
+                                "Observed monotonic interval: ${duko.window.durationMs / 1000L}s · " +
+                                    "Device profile: ${if (duko.capabilitySnapshotAvailable) "saved" else "legacy/unknown"}",
+                                color = Subtle
+                            )
+                            listOf(
+                                DukoMetric.CPU_LOAD,
+                                DukoMetric.GPU_LOAD,
+                                DukoMetric.CPU_CLOCK,
+                                DukoMetric.GPU_CLOCK,
+                                DukoMetric.BATTERY_TEMPERATURE,
+                                DukoMetric.BATTERY_CURRENT
+                            ).forEach { metric ->
+                                val item = duko.integrity.metrics[metric]
+                                if (item != null) {
+                                    Text(
+                                        "${metric.name.replace('_', ' ')} · " +
+                                            "P50 ${fmt(item.median)} ${metric.unit.symbol} · " +
+                                            "Time-mean ${fmt(item.timeWeightedMean)} ${metric.unit.symbol} · " +
+                                            "Coverage ${String.format(Locale.US, "%.0f", item.coverage * 100)}% · " +
+                                            item.evidence.name,
+                                        color = Ink
+                                    )
+                                    if (item.warnings.isNotEmpty())
+                                        Text(item.warnings.joinToString(", "),
+                                            color = Subtle)
+                                }
+                            }
+                        } else {
+                            Text(
+                                "Duko time-weighted analysis requires at least two " +
+                                    "monotonic samples; older sessions retain their basic summaries.",
+                                color = Subtle
+                            )
+                        }
                     }
                 }
             }
