@@ -24,7 +24,7 @@ internal class LocalRecordingStore(
 ) : RecordingPersistence {
     private val app = context.applicationContext
     private val db = HeimdallDatabase.helper(app, databaseName)
-    private val dukoContextStore = DukoSessionContextStore(app)
+    private val dukoContextStore = DukoSessionContextStore(app, databaseName)
 
     /** Any open row, including a crashed v1 row, blocks a replacement START. */
     override suspend fun unresolvedSessionId(): Long? = withContext(Dispatchers.IO) {
