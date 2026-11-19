@@ -5,6 +5,8 @@ import com.locutus5382.heimdall.engine.duko.DukoEvidence
 import com.locutus5382.heimdall.engine.duko.DukoBatteryPoint
 import com.locutus5382.heimdall.engine.duko.DukoEnergy
 import com.locutus5382.heimdall.engine.duko.DukoEnergyReport
+import com.locutus5382.heimdall.engine.duko.DukoThermal
+import com.locutus5382.heimdall.engine.duko.DukoThermalReport
 import com.locutus5382.heimdall.engine.duko.DukoMetric
 import com.locutus5382.heimdall.engine.duko.DukoMetricAnalysis
 import com.locutus5382.heimdall.engine.duko.DukoObservation
@@ -28,6 +30,7 @@ data class DukoFoundationReport(
     val window: DukoWindow,
     val integrity: DukoSessionIntegrity,
     val energy: DukoEnergyReport,
+    val thermal: Map<DukoMetric, DukoThermalReport>,
     val capabilitySnapshotAvailable: Boolean,
     val analysisVersion: Int = 1,
 )
@@ -149,6 +152,15 @@ internal class DukoSessionAnalyzer(
                 window = window,
                 integrity = DukoSessionIntegrity(outcome, reports),
                 energy = DukoEnergy.analyze(window, batteryPoints, cadence),
+                thermal = listOf(
+                    DukoMetric.BATTERY_TEMPERATURE,
+                    DukoMetric.CPU_TEMPERATURE,
+                    DukoMetric.GPU_TEMPERATURE
+                ).associateWith { metric ->
+                    DukoThermal.analyze(
+                        metric, window, series.getValue(metric), cadence
+                    )
+                },
                 capabilitySnapshotAvailable = snapshotJson != null
             )
         }
