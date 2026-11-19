@@ -136,7 +136,7 @@ class SessionArchive(context: Context) {
                         writer.write(
                             "sample_id,time_ms,cpu_load_pct,battery_pct,battery_temp_c,free_memory_mib,cpu_clock_mhz,gpu_clock_mhz," +
                             "elapsed_ms,thermal_status,thermal_headroom,battery_current_ua,battery_voltage_mv,battery_plugged,gpu_load_pct," +
-                            "cpu_temp_c,gpu_temp_c,cpu_policy_clocks,cpu_policy_limits,cpu_policy_hardware_max\\n"
+                            "cpu_temp_c,gpu_temp_c,cpu_policy_clocks,cpu_policy_limits,cpu_policy_hardware_max\n"
                         )
                         database.rawQuery(
                             """
