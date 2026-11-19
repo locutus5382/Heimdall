@@ -144,8 +144,10 @@ internal class DukoSessionContextStore(
             put("performance_mode", p.performanceMode)
             put("fan_profile", p.fanProfile)
             put("cluster_tune_profile", p.clusterTuneProfile)
-            if (p.clusterTuneEnabled == null) putNull("cluster_tune_enabled")
-            else put("cluster_tune_enabled", if (p.clusterTuneEnabled) 1 else 0)
+            when (val active = p.clusterTuneEnabled) {
+                null -> putNull("cluster_tune_enabled")
+                else -> put("cluster_tune_enabled", if (active) 1 else 0)
+            }
             put("tuning_tool", p.tuningTool)
             put("notes", p.notes)
             put("tag_source", p.origin.name)
