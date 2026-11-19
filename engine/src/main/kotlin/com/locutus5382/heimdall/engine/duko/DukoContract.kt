@@ -139,6 +139,6 @@ data class DukoObservedPolicyLimits(
     val restrictedPolicies: Set<String>
         get() = policyMaxMHz.filter { (key, max) ->
             val hardware = hardwareMaxMHz[key]
-            hardware != null && max in 1 until hardware
+            hardware != null && max >= 1L && max < hardware
         }.keys
 }
