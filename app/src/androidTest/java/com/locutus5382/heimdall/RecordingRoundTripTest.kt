@@ -43,7 +43,8 @@ class RecordingRoundTripTest {
             .grantRuntimePermission(app.packageName, Manifest.permission.POST_NOTIFICATIONS)
 
         val dbFile = app.getDatabasePath("heimdall_v1.db")
-        assertFalse("Requires a fresh disposable emulator app installation", dbFile.exists())
+        // App-launch inspection may initialize the fresh empty SQLite DB before
+        // this test begins. The final exact-one-row assertion guards freshness.
 
         // The previous test called the Service directly and missed broken UI wiring.
         compose.onNodeWithText("START").performClick()
