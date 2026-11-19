@@ -52,6 +52,7 @@ internal class LocalRecordingStore(
     }
 
     override suspend fun begin(): Long = withContext(Dispatchers.IO) {
+        val preparedContext = dukoContextStore.prepareNewSession()
         val database = db.writableDatabase
         database.beginTransaction()
         try {
@@ -75,7 +76,7 @@ internal class LocalRecordingStore(
             // Snapshot the user's test labels and discovered device topology
             // in the SAME transaction. Metadata can change later without
             // modifying sensor samples or the recording ID.
-            dukoContextStore.attachNewSession(database, id)
+            dukoContextStore.attachNewSession(database, id, preparedContext)
             database.setTransactionSuccessful()
             id
         } finally {
