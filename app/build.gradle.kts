@@ -5,6 +5,10 @@ plugins {
 android {
     namespace = "com.locutus5382.heimdall"
     compileSdk = 36
+    // CI can run identical instrumentation tests against the actual R8
+    // optimized QA APK, not only the unshrunk debug variant.
+    testBuildType = providers.gradleProperty("heimdallAndroidTestBuildType")
+        .orElse("debug").get()
     defaultConfig {
         applicationId = "com.locutus5382.heimdall"
         minSdk = 31
