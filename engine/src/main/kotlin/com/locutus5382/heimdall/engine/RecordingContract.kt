@@ -20,6 +20,11 @@ data class DeviceSample(
     val batteryVoltageMv: Int? = null,
     val batteryPlugged: Boolean? = null,
     val gpuLoadPercent: Double? = null,
+    val cpuTemperatureC: Double? = null,
+    val gpuTemperatureC: Double? = null,
+    val cpuPolicyClocksMHz: Map<String, Long> = emptyMap(),
+    val cpuPolicyLimitsMHz: Map<String, Long> = emptyMap(),
+    val cpuPolicyHardwareMaxMHz: Map<String, Long> = emptyMap(),
 )
 
 sealed interface RecorderStatus {
