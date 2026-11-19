@@ -2,52 +2,59 @@
 
 **We analyze how the handheld behaves, not how many frames the game renders.**
 
-A new Android-native, offline-only handheld telemetry and analytics app.
-One recording engine, one foreground service, one local database and a coherent
-cobalt/marigold UI. No root or Internet permission.
+Android-native, offline-only handheld telemetry and analytics. One foreground
+recorder service, one sampler, one local SQLite database; no root, Internet
+permission, login, cloud account or FPS measurement claims. Fully independent
+of the older CoreMetrics package.
 
-## Current status: F0 foundation (not a public release)
+## Current development branch: v0.3 stability candidate
 
-The first branch implements:
-- A pure Kotlin recording coordinator with STOP-before-finalize semantics
-- An independent Android app ID: `com.locutus5382.heimdall`
-- A native foreground recorder service and SQLite v1 sessions/samples
-- Read-only battery, memory, CPU-load, CPU-clock and optional GPU-clock probes
-- A first Compose dashboard with live persisted sample counts
-- JVM lifecycle tests and a GitHub Actions build
-- An F0 acceptance branch adds a Compose dashboard-to-SQLite instrumentation
-  test on a disposable Android emulator; test execution is not yet verified.
+The prototype now includes:
+- Dashboard START / STOP & SAVE with real persisted sample counts
+- Read-only CPU load, detected CPU-policy clocks, optional GPU clock, battery,
+  battery temperature and memory probes (unavailable sources are shown as —)
+- Recording notification and a single shared state for dashboard, HUD and
+  Quick Settings tile; a cold tile checks for unfinished recording evidence
+- Optional permission-gated Cobalt/Marigold in-game telemetry Pill, STOP,
+  animated REC indicator, drag handle and edge snap
+- Completed session history, on-demand median/P95/peak summaries with
+  sample-coverage reporting and user-selected CSV export
+- Transactional SQLite **schema v2**: START, sample insert and durable STOP
+  live in one database. v1 recordings migrate without being deleted
+- Safe original-session handling after interruption: committed STOP is
+  finalized on inspection; otherwise the original is held for manual STOP
+- JVM tests, Android 15 emulator recording tests, fault-injection tests,
+  and a GitHub Actions debug APK build
 
-F1a (experimental, unverified): dashboard launch can inspect an interrupted
-recording, and the original session can be finalized automatically only when a
-durable STOP was already committed. Unstopped recordings remain blocked until
-user STOP; this is not automatic recording resumption. See
-[docs/F1A_RECOVERY.md](docs/F1A_RECOVERY.md).
+**Testing is not a release.** Full game-overlay/controller behavior, sustained
+performance, vendor ROM restrictions and real crash paths still require an
+Odin 2 Portal acceptance run. Do not uninstall CoreMetrics or erase its data.
 
-Not implemented yet: full crash recovery, polished HUD variants, Quick
-Settings, device-specific validation, A/B analytics, DUKO reports, exports and
-Play Store readiness. None of the old CoreMetrics code is imported.
+## Build and tests
 
-## F0 acceptance
-
-Before F0 can be called complete, both CI jobs must pass and the recorder must
-pass a physical Odin 2 Portal test. See [F0_ACCEPTANCE.md](docs/F0_ACCEPTANCE.md).
-Neither code presence nor a generated APK alone proves the recording workflow.
-
-## Build
-
-Prerequisites: JDK 17, Android SDK 36 and Gradle 8.11.1.
+Prerequisites: JDK 17, Android SDK 36, Gradle 8.11.1.
 
 ```bash
-gradle :engine:test :app:assembleDebug
-# With a running compatible Android emulator/device:
-gradle :app:connectedDebugAndroidTest
+gradle :engine:test :app:assembleDebug --no-daemon
+# On a disposable Android emulator:
+gradle :app:connectedDebugAndroidTest --no-daemon
 ```
 
-Use the GitHub Actions debug APK from a **successful** CI run. Its app ID is
-separate from `com.locutus5382.coremetrics`. Do not install it as a replacement
-for CoreMetrics or assume that it can recover old CoreMetrics recordings.
+For an installable APK, use `HEIMDALL-v0.3-stability-debug` from a
+**successful** GitHub Actions run on the matching commit. It uses
+`com.locutus5382.heimdall` and does not overwrite CoreMetrics. Upgrading
+v0.2 to v0.3 should preserve Heimdall recordings via the schema migration.
 
-Architecture, safety decisions and staged feature plan: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Before accepting this candidate on Odin, use
+[docs/V03_ACCEPTANCE.md](docs/V03_ACCEPTANCE.md). Architecture and long-term
+roadmap: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+### Still missing from the intended full product
+
+- Device-specific power/energy and capability coverage, advanced thermal/PSI
+- The three final HUD themes, touch lock and controller-first interaction
+- DUKO A/B reports, activity detection, integrity grading, TXT/PNG/PDF export
+- Automated resumption of interrupted sampling (intentionally not claimed)
+- Broad Odin/Retroid/AYANEO validation and Play Store release hardening
 
 Copyright © 2026 Aleksandar Dukovski. All rights reserved.
