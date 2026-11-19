@@ -195,7 +195,7 @@ internal class LocalRecordingStore(
                         ContentValues().apply {
                             put("status", "COMPLETED")
                             // Preserve durable STOP time, not next-day recovery.
-                            put("ended_at_ms", maxOf(status.second, status.third))
+                            put("ended_at_ms", maxOf(status.second, requireNotNull(status.third)))
                             put("end_reason", "COMPLETED")
                             put("sample_count", total)
                         },
