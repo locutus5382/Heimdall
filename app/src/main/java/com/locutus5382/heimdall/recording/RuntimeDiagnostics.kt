@@ -103,14 +103,16 @@ class RuntimeDiagnostics(context: Context) {
         line("GPU clock path readable",
             gpuPaths.firstOrNull(::readable) ?: "unavailable")
 
-        val dbFile = app.getDatabasePath("heimdall_v1.db")
+        val dbFile = app.getDatabasePath(HeimdallDatabase.NAME)
         line("SQLite database present", dbFile.isFile)
         if (dbFile.isFile) {
             line("SQLite data file KiB", dbFile.length() / 1024L)
             runCatching {
-                SQLiteDatabase.openDatabase(
-                    dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY
-                ).use { database ->
+                run {
+                    val database = HeimdallDatabase.helper(app).readableDatabase
+                    database.rawQuery("PRAGMA journal_mode", null).use { journal ->
+                        if (journal.moveToFirst()) line("SQLite journal", journal.getString(0))
+                    }
                     line("SQLite schema", database.version)
                     database.rawQuery(
                         "SELECT status, COUNT(*) FROM sessions GROUP BY status",
