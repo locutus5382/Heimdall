@@ -67,6 +67,7 @@ internal class LocalRecordingStore(
                     app.packageManager.getPackageInfo(app.packageName, 0).versionName
                 }.getOrNull())
                 put("sample_interval_ms", 2000)
+                put("capability_summary", SensorCatalog.get(app).summary())
                 put("status", "RECORDING")
             })
             check(id > 0L) { "SESSION_CREATE_FAILED" }
@@ -109,6 +110,19 @@ internal class LocalRecordingStore(
                 sample.batteryVoltageMv?.let { put("battery_voltage_mv", it) }
                 sample.batteryPlugged?.let { put("battery_plugged", if (it) 1 else 0) }
                 sample.gpuLoadPercent?.let { put("gpu_load_pct", it) }
+                sample.cpuTemperatureC?.let { put("cpu_temp_c", it) }
+                sample.gpuTemperatureC?.let { put("gpu_temp_c", it) }
+                fun encode(m: Map<String, Long>): String =
+                    m.entries.sortedBy { it.key }.joinToString("|") {
+                        "${it.key}=${it.value}"
+                    }
+                if (sample.cpuPolicyClocksMHz.isNotEmpty())
+                    put("cpu_policy_clocks", encode(sample.cpuPolicyClocksMHz))
+                if (sample.cpuPolicyLimitsMHz.isNotEmpty())
+                    put("cpu_policy_limits", encode(sample.cpuPolicyLimitsMHz))
+                if (sample.cpuPolicyHardwareMaxMHz.isNotEmpty())
+                    put("cpu_policy_hardware_max",
+                        encode(sample.cpuPolicyHardwareMaxMHz))
             }
             val saved = database.insertOrThrow("samples", null, row) > 0L
             if (saved) database.setTransactionSuccessful()
