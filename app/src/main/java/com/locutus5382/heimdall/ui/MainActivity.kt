@@ -272,7 +272,7 @@ private fun HeimdallDashboard(
                 MetricCard("FREE RAM", latest?.availableMemoryMiB?.let {
                     "$it MiB"
                 } ?: "—", Modifier.weight(1f))
-                MetricCard("CPU CLOCK", latest?.cpuClockMHz?.let {
+                MetricCard("TOP CPU CLOCK", latest?.cpuClockMHz?.let {
                     "$it MHz"
                 } ?: "—", Modifier.weight(1f))
             }
