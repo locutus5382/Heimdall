@@ -15,10 +15,18 @@ The first branch implements:
 - Read-only battery, memory, CPU-load, CPU-clock and optional GPU-clock probes
 - A first Compose dashboard with live persisted sample counts
 - JVM lifecycle tests and a GitHub Actions build
+- An F0 acceptance branch adds a Compose dashboard-to-SQLite instrumentation
+  test on a disposable Android emulator; test execution is not yet verified.
 
 Not implemented yet: automatic crash recovery, polished HUD variants, Quick
 Settings, device-specific validation, A/B analytics, DUKO reports, exports and
 Play Store readiness. None of the old CoreMetrics code is imported.
+
+## F0 acceptance
+
+Before F0 can be called complete, both CI jobs must pass and the recorder must
+pass a physical Odin 2 Portal test. See [F0_ACCEPTANCE.md](docs/F0_ACCEPTANCE.md).
+Neither code presence nor a generated APK alone proves the recording workflow.
 
 ## Build
 
@@ -26,6 +34,8 @@ Prerequisites: JDK 17, Android SDK 36 and Gradle 8.11.1.
 
 ```bash
 gradle :engine:test :app:assembleDebug
+# With a running compatible Android emulator/device:
+gradle :app:connectedDebugAndroidTest
 ```
 
 Use the GitHub Actions debug APK from a **successful** CI run. Its app ID is
