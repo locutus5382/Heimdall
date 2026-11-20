@@ -12,11 +12,18 @@ import subprocess
 import sys
 from pathlib import Path
 
-ALLOWED = frozenset({
+REQUIRED = frozenset({
     "android.permission.FOREGROUND_SERVICE",
     "android.permission.FOREGROUND_SERVICE_SPECIAL_USE",
     "android.permission.POST_NOTIFICATIONS",
     "android.permission.SYSTEM_ALERT_WINDOW",
+})
+# AndroidX Core adds a package-scoped signature permission when using
+# ContextCompat-registered, non-exported dynamic receivers. This does not grant
+# external networking or access to another application. It is version-dependent,
+# so allow but do not require this exact generated name.
+ALLOWED = REQUIRED | frozenset({
+    "com.locutus5382.heimdall.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
 })
 PERMISSION = re.compile(r"uses-permission(?:-sdk-\d+)?:\s*name='([^']+)'")
 
@@ -45,7 +52,7 @@ def main() -> int:
             continue
         found = frozenset(PERMISSION.findall(result.stdout))
         # No permissions at all indicates a broken or unexpectedly changed parser.
-        missing = ALLOWED - found
+        missing = REQUIRED - found
         unexpected = found - ALLOWED
         print(f"{apk}: {len(found)} merged permissions")
         for permission in sorted(found):
