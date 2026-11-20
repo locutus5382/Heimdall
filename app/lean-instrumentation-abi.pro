@@ -27,3 +27,8 @@
 # AndroidX test infrastructure references this interface from an otherwise
 # unreachable runtime path; test instrumentation shares target class loading.
 -keep class com.google.common.util.concurrent.ListenableFuture { *; }
+
+# AndroidX Compose test rule installs a LifecycleOwner through reflection
+# in the separately compiled test runner. Preserve this AndroidX class in
+# the optimized QA target; production release shrinking is unaffected.
+-keep class androidx.lifecycle.ViewTreeLifecycleOwner { *; }
