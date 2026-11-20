@@ -10,12 +10,17 @@
 # Keep coroutines' public facade ABI in the debug-signed, instrumented QA
 # variant only. Production release retains full R8 optimization.
 # This does NOT change any recorder, HUD, database, or analytics logic.
-# Instrumentation also links to Kotlin intrinsics and Compose types/fields.
+# Instrumentation also links to Kotlin intrinsics and Compose runtime/UI types.
 # The optimized target and separate test APK need a consistent ABI. Limit
 # these wider rules to debug-signed QA: production release stays fully shrunk.
 -keep class kotlin.** { *; }
 -keep class kotlinx.coroutines.** { *; }
--keep class androidx.compose.** { *; }
+# AndroidX Test talks to the host Compose runtime and semantics/UI types.
+# Preserve those shared test ABI surfaces, but allow Material3, Foundation,
+# animation and unrelated Compose components to shrink normally. If the
+# optimized instrumentation suite reveals a missing API, add only that API.
+-keep class androidx.compose.runtime.** { *; }
+-keep class androidx.compose.ui.** { *; }
 
 # Separately compiled Android instrumentation calls Heimdall classes and
 # constructors by their original binary names. In optimized QA only, retain
