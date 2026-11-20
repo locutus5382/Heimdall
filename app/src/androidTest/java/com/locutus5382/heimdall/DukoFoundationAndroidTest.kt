@@ -2,6 +2,7 @@ package com.locutus5382.heimdall
 
 import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
+import android.os.BatteryManager
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.locutus5382.heimdall.engine.DeviceSample
@@ -65,7 +66,9 @@ class DukoFoundationAndroidTest {
                     observedElapsedMs = base,
                     batteryCurrentUa = -2_000_000L,
                     batteryVoltageMv = 4_000,
-                    batteryPlugged = false
+                    batteryPlugged = false,
+                    // Known electrical discharge is required for SUPPORTED energy.
+                    batteryStatus = BatteryManager.BATTERY_STATUS_DISCHARGING
                 )))
                 assertTrue(recorder.append(session, DeviceSample(
                     observedAtMs = System.currentTimeMillis() + 2_000L,
@@ -75,7 +78,9 @@ class DukoFoundationAndroidTest {
                     observedElapsedMs = base + 2_000L,
                     batteryCurrentUa = -2_000_000L,
                     batteryVoltageMv = 4_000,
-                    batteryPlugged = false
+                    batteryPlugged = false,
+                    // Known electrical discharge is required for SUPPORTED energy.
+                    batteryStatus = BatteryManager.BATTERY_STATUS_DISCHARGING
                 )))
                 assertTrue(recorder.persistStop(session))
                 assertTrue(recorder.finish(session))
