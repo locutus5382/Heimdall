@@ -36,7 +36,10 @@ class HeimdallRecorderService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var foregroundLive = false
-    private var commandInFlight = false
+    // These guards live on the Service main thread. Register a command BEFORE
+    // launch(): another command may arrive while the engine mutex is suspended.
+    private val commandTracker = ServiceCommandTracker()
+    private val notificationGate = RecorderNotificationGate()
     private lateinit var engine: NativeRecorderEngine
     private lateinit var hud: HudOverlayController
 
@@ -58,30 +61,17 @@ class HeimdallRecorderService : Service() {
             engine.status.collect { state ->
                 RecorderStatusHub.publish(state)
                 hud.render(state)
-                if (foregroundLive) {
-                    val manager = getSystemService(NOTIFICATION_SERVICE)
-                        as NotificationManager
-                    when (state) {
-                        is RecorderStatus.Recording, is RecorderStatus.Stopping,
-                        is RecorderStatus.Saving, RecorderStatus.Preparing ->
-                            manager.notify(NOTIFICATION_ID,
-                                notification(statusMessage(state),
-                                    if (state is RecorderStatus.Recording)
-                                        "STOP" else "STOP / Retry"))
-                        is RecorderStatus.NeedsAttention -> {
-                            foregroundLive = false
-                            stopForeground(STOP_FOREGROUND_REMOVE)
-                            manager.notify(NOTIFICATION_ID,
-                                notification("Recording interrupted: ${state.code}",
-                                    ongoing = false,
-                                    actionName = if (state.sessionId == null) null
-                                        else "RETRY STOP"))
-                            // A spontaneous sampler failure has no command to
-                            // perform foreground cleanup on its behalf.
-                            if (!commandInFlight) stopSelf()
-                        }
-                        else -> Unit // Terminal action handles stopSelfResult.
+                when (state) {
+                    is RecorderStatus.Recording, is RecorderStatus.Stopping,
+                    is RecorderStatus.Saving, RecorderStatus.Preparing ->
+                        postProgressNotification(state)
+                    is RecorderStatus.NeedsAttention -> {
+                        detachForegroundForAttention(state)
+                        // Never stopSelf() unconditionally: a START or STOP may
+                        // already be queued with a later Android startId.
+                        stopIfNoCommandsAndTerminal()
                     }
+                    else -> Unit // Terminal command owns final cleanup.
                 }
                 val phase = state.javaClass.simpleName
                 if (phase != previousPhase) {
@@ -97,23 +87,27 @@ class HeimdallRecorderService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
+        // Register synchronously on Main, including INSPECT. An earlier command
+        // completing must never stop the Service while a newer one is waiting.
+        commandTracker.begin(startId)
         if (action == INSPECT) {
-            // Launched by a visible Activity as a regular (non-FGS) service.
-            // Never create a recording or show a fake recording notification.
+            // Visible Activity may inspect an interrupted session without FGS.
             scope.launch {
-                val restored = engine.inspectExisting()
-                if (restored !is RecorderStatus.Recording &&
-                    restored !is RecorderStatus.Preparing &&
-                    restored !is RecorderStatus.Stopping &&
-                    restored !is RecorderStatus.Saving) {
-                    // Never stop a newer START command queued after this inspect.
-                    stopSelfResult(startId)
+                try {
+                    engine.inspectExisting()
+                } finally {
+                    commandTracker.finish()
+                    stopIfNoCommandsAndTerminal()
                 }
             }
             return START_NOT_STICKY
         }
         if (action != START && action != STOP) {
-            stopSelfResult(startId)
+            // Unknown/OS intent must not stop an ongoing recorder.
+            scope.launch {
+                commandTracker.finish()
+                stopIfNoCommandsAndTerminal()
+            }
             return START_NOT_STICKY
         }
 
@@ -121,54 +115,87 @@ class HeimdallRecorderService : Service() {
             // Foreground BEFORE any potentially slow SQLite or sensor work.
             startForeground(NOTIFICATION_ID, notification("Preparing recorder"))
             foregroundLive = true
+            notificationGate.reset()
         } catch (_: Exception) {
             engine.reportStartFailure("FOREGROUND_NOT_ALLOWED")
-            stopSelf(startId)
+            commandTracker.finish()
+            stopIfNoCommandsAndTerminal()
             return START_NOT_STICKY
         }
         scope.launch {
-            commandInFlight = true
-            // Commands are serialized by the engine. The Service must not
-            // remain foreground when no sampler is active (failed START,
-            // finished STOP or unresolved crashed session).
-            val success = try {
-                when (action) {
-                    START -> engine.start()
-                    STOP -> engine.stop()
-                    else -> false
-                }
-            } catch (_: Exception) {
-                engine.reportStartFailure("COMMAND_FAILED")
-                false
-            }
-            val state = engine.status.value
-            when (state) {
-                is RecorderStatus.Recording -> {
-                    (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
-                        .notify(NOTIFICATION_ID,
-                            notification(statusMessage(state)))
-                }
-                is RecorderStatus.Finished, RecorderStatus.Idle,
-                is RecorderStatus.NeedsAttention -> {
-                    // A later command may already be enqueued. Only the last
-                    // startId may stop this Service and remove its notification.
-                    if (stopSelfResult(startId)) {
-                        stopForeground(STOP_FOREGROUND_REMOVE)
-                    } else if (!success) {
-                        // A newer command will set its own status; do not
-                        // report a rejected START as a successful recording.
-                        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
-                            .notify(NOTIFICATION_ID, notification(statusMessage(state)))
+            try {
+                // Commands serialize inside the engine; the tracker separately
+                // protects Service lifetime against overlapping Android intents.
+                try {
+                    when (action) {
+                        START -> engine.start()
+                        STOP -> engine.stop()
+                        else -> Unit
                     }
+                } catch (_: Exception) {
+                    engine.reportStartFailure("COMMAND_FAILED")
                 }
-                else -> {
-                    (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
-                        .notify(NOTIFICATION_ID, notification(statusMessage(state)))
+                when (val state = engine.status.value) {
+                    is RecorderStatus.Recording, is RecorderStatus.Stopping,
+                    is RecorderStatus.Saving, RecorderStatus.Preparing ->
+                        postProgressNotification(state)
+                    else -> Unit
                 }
+            } finally {
+                commandTracker.finish()
+                stopIfNoCommandsAndTerminal()
             }
-            commandInFlight = false
         }
         return START_NOT_STICKY
+    }
+
+    /**
+     * One notification for a meaningful phase or action change, never one
+     * per 2-second telemetry tick. Kept on the Service's main thread.
+     */
+    private fun postProgressNotification(state: RecorderStatus) {
+        if (!foregroundLive) return
+        val action = if (state is RecorderStatus.Recording) "STOP" else "STOP / Retry"
+        val message = statusMessage(state)
+        if (notificationGate.shouldPost(message, action)) {
+            (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+                .notify(NOTIFICATION_ID, notification(message, action))
+        }
+    }
+
+    private fun detachForegroundForAttention(state: RecorderStatus.NeedsAttention) {
+        if (!foregroundLive) return
+        // DETACH leaves an actionable, non-ongoing attention notification.
+        // REMOVE + notify immediately afterward can race and hide the alert.
+        foregroundLive = false
+        stopForeground(STOP_FOREGROUND_DETACH)
+        notificationGate.reset()
+        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+            .notify(NOTIFICATION_ID, notification(
+                "Recording interrupted: ${state.code}",
+                actionName = if (state.sessionId == null) null else "RETRY STOP",
+                ongoing = false
+            ))
+    }
+
+    private fun stopIfNoCommandsAndTerminal() {
+        val startId = commandTracker.idleStartId() ?: return
+        val state = engine.status.value
+        if (state is RecorderStatus.Recording ||
+            state is RecorderStatus.Preparing ||
+            state is RecorderStatus.Stopping ||
+            state is RecorderStatus.Saving) return
+        // stopSelfResult rejects a stale startId if Android has delivered a
+        // newer command. A process remains alive for an ongoing sampler.
+        if (stopSelfResult(startId) && foregroundLive) {
+            if (state is RecorderStatus.NeedsAttention) {
+                detachForegroundForAttention(state)
+            } else {
+                foregroundLive = false
+                notificationGate.reset()
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            }
+        }
     }
 
     private fun statusMessage(status: RecorderStatus): String = when (status) {
@@ -220,8 +247,11 @@ class HeimdallRecorderService : Service() {
         //
         // Cancelling the owning scope immediately prevents further sampling,
         // while the SQLite unfinished row remains the durable recovery owner.
-        val state = engine.status.value
-        hud.dispose()
+        // onCreate() can fail before the engine or HUD is constructed.
+        // Preserve the original startup error rather than masking it here.
+        val state = if (::engine.isInitialized) engine.status.value
+            else RecorderStatus.Idle
+        if (::hud.isInitialized) hud.dispose()
         scope.cancel()
         engineScope.cancel()
         val interrupted = when (state) {
