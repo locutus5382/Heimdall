@@ -60,7 +60,8 @@ object DukoThermal {
             if (prev != null &&
                 (row.elapsedMs <= prev.elapsedMs ||
                     row.elapsedMs - prev.elapsedMs > maxGap ||
-                    row.sourceId != prev.sourceId)) {
+                    row.sourceId != prev.sourceId ||
+                    row.origin != prev.origin)) {
                 completeSegment()
             }
             segment.add(row)
