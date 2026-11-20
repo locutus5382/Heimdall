@@ -138,21 +138,31 @@ class NativeRecorderEngineTest {
         } finally { scope.cancel() }
     }
 
-    @Test fun sensorFailureStopsSamplerWithoutClearingSession() = runBlocking {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        try {
-            val store = FakeStore()
-            val e = NativeRecorderEngine(FakeSource().apply { fail = true },
-                store, scope)
-            assertTrue(e.start())
-            await { e.status.value is RecorderStatus.NeedsAttention }
-            assertEquals("SAMPLE_IO_FAILED",
-                (e.status.value as RecorderStatus.NeedsAttention).code)
-            assertEquals(7L, store.active)
-            assertEquals(0, store.finishes)
-            assertTrue(e.stop())
-            assertNull(store.active)
-        } finally { scope.cancel() }
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun sensorFailureStopsSamplerWithoutClearingSession() = runTest {
+        // A permanently failing source must cross the *elapsed-time* outage
+        // budget, not a hardcoded number of 250 ms retries. Virtual time keeps
+        // this test fast, repeatable and independent of CI runner load.
+        val store = FakeStore()
+        val e = NativeRecorderEngine(
+            FakeSource().apply { fail = true },
+            store, backgroundScope,
+            monotonicNowMs = { testScheduler.currentTime }
+        )
+        assertTrue(e.start())
+        runCurrent()
+        advanceTimeBy(25_000L)
+        runCurrent()
+        assertTrue("A 25-second outage must remain recoverable",
+            e.status.value is RecorderStatus.Recording)
+        advanceTimeBy(10_000L)
+        runCurrent()
+        assertEquals("SAMPLE_IO_FAILED",
+            (e.status.value as RecorderStatus.NeedsAttention).code)
+        assertEquals(7L, store.active)
+        assertEquals(0, store.finishes)
+        assertTrue(e.stop())
+        assertNull(store.active)
     }
 
     @Test fun intermittentSensorFailuresRecoverWithoutReplacingSession() = runBlocking {
