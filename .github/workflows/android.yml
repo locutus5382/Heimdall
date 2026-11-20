@@ -41,6 +41,16 @@ jobs:
           fi
       - name: Build and run all pure engine tests
         run: gradle :engine:test :app:assembleDebug :app:assembleLeanDebug --no-daemon --stacktrace
+      - name: Verify R8 QA APK preserves test-linked Kotlin/coroutines ABI
+        run: |
+          python3 scripts/check_lean_test_abi.py \
+            app/build/outputs/apk/leanDebug/app-leanDebug.apk \
+            kotlin.LazyKt \
+            kotlin.coroutines.intrinsics.IntrinsicsKt \
+            androidx.compose.runtime.MonotonicFrameClock \
+            kotlinx.coroutines.JobKt \
+            kotlinx.coroutines.BuildersKt \
+            kotlinx.coroutines.CoroutineScopeKt
       - name: Verify standalone Heimdall application ID
         run: |
           APK=app/build/outputs/apk/debug/app-debug.apk
