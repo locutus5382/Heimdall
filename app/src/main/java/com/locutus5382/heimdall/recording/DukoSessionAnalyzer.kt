@@ -2,6 +2,11 @@ package com.locutus5382.heimdall.recording
 
 import android.content.Context
 import com.locutus5382.heimdall.engine.duko.DukoEvidence
+import com.locutus5382.heimdall.engine.duko.DukoBatteryPoint
+import com.locutus5382.heimdall.engine.duko.DukoEnergy
+import com.locutus5382.heimdall.engine.duko.DukoEnergyReport
+import com.locutus5382.heimdall.engine.duko.DukoThermal
+import com.locutus5382.heimdall.engine.duko.DukoThermalReport
 import com.locutus5382.heimdall.engine.duko.DukoMetric
 import com.locutus5382.heimdall.engine.duko.DukoMetricAnalysis
 import com.locutus5382.heimdall.engine.duko.DukoObservation
@@ -24,6 +29,8 @@ data class DukoFoundationReport(
     val sessionId: Long,
     val window: DukoWindow,
     val integrity: DukoSessionIntegrity,
+    val energy: DukoEnergyReport,
+    val thermal: Map<DukoMetric, DukoThermalReport>,
     val capabilitySnapshotAvailable: Boolean,
     val analysisVersion: Int = 1,
 )
@@ -75,13 +82,14 @@ internal class DukoSessionAnalyzer(
             val series = selectedMetrics.associateWith {
                 ArrayList<DukoObservation>()
             }
+            val batteryPoints = ArrayList<DukoBatteryPoint>()
             var first: Long? = null
             var last: Long? = null
             database.rawQuery(
                 """SELECT elapsed_ms,cpu_load_pct,gpu_load_pct,cpu_clock_mhz,
                           gpu_clock_mhz,battery_temp_c,battery_pct,
                           cpu_temp_c,gpu_temp_c,battery_current_ua,
-                          battery_voltage_mv,free_memory_mib
+                          battery_voltage_mv,free_memory_mib,battery_plugged
                    FROM samples WHERE session_id=? ORDER BY id""",
                 arrayOf(sessionId.toString())
             ).use { c ->
@@ -91,6 +99,12 @@ internal class DukoSessionAnalyzer(
                     if (t < 0) continue
                     if (t < (first ?: Long.MAX_VALUE)) first = t
                     if (t > (last ?: Long.MIN_VALUE)) last = t
+                    batteryPoints += DukoBatteryPoint(
+                        elapsedMs = t,
+                        currentMicroAmps = if (c.isNull(9)) null else c.getLong(9),
+                        voltageMilliVolts = if (c.isNull(10)) null else c.getInt(10),
+                        plugged = if (c.isNull(12)) null else c.getInt(12) != 0
+                    )
                     for (i in selectedMetrics.indices) {
                         val metric = selectedMetrics[i]
                         val value = if (c.isNull(i + 1)) null
@@ -134,7 +148,19 @@ internal class DukoSessionAnalyzer(
                 else -> DukoSessionOutcome.NEEDS_RECOVERY
             }
             DukoFoundationReport(
-                sessionId, window, DukoSessionIntegrity(outcome, reports),
+                sessionId = sessionId,
+                window = window,
+                integrity = DukoSessionIntegrity(outcome, reports),
+                energy = DukoEnergy.analyze(window, batteryPoints, cadence),
+                thermal = listOf(
+                    DukoMetric.BATTERY_TEMPERATURE,
+                    DukoMetric.CPU_TEMPERATURE,
+                    DukoMetric.GPU_TEMPERATURE
+                ).associateWith { metric ->
+                    DukoThermal.analyze(
+                        metric, window, series.getValue(metric), cadence
+                    )
+                },
                 capabilitySnapshotAvailable = snapshotJson != null
             )
         }

@@ -181,6 +181,47 @@ fun SessionHistoryPanel(refreshKey: Long) {
                                     "Device profile: ${if (duko.capabilitySnapshotAvailable) "saved" else "legacy/unknown"}",
                                 color = Subtle
                             )
+                            val energy = duko.energy
+                            Text("DUKO ENERGY · BATTERY DISCHARGE", color = Amber)
+                            Text(
+                                "Measured battery-terminal energy: " +
+                                    "${fmt(energy.measuredDischargeMWh)} mWh · " +
+                                    "Mean discharge: ${fmt(energy.timeWeightedDischargeWatts)} W · " +
+                                    "Coverage: ${String.format(Locale.US, "%.0f", energy.statistics.coverage * 100)}% · " +
+                                    energy.evidence.name,
+                                color = Ink
+                            )
+                            if (energy.warnings.isNotEmpty()) {
+                                Text(
+                                    "Battery-only measurement, not total device/game power. " +
+                                        energy.warnings.filterNot {
+                                            it == "BATTERY_TERMINAL_POWER_NOT_GAME_OR_WALL_POWER"
+                                        }.joinToString(", "),
+                                    color = Subtle
+                                )
+                            }
+                            Text("DUKO THERMAL · MEASURED TRENDS", color = Amber)
+                            listOf(
+                                DukoMetric.BATTERY_TEMPERATURE,
+                                DukoMetric.CPU_TEMPERATURE,
+                                DukoMetric.GPU_TEMPERATURE
+                            ).forEach { metric ->
+                                val trend = duko.thermal[metric]
+                                if (trend != null) {
+                                    Text(
+                                        "${metric.name.replace('_', ' ')} · " +
+                                            "Slope ${fmt(trend.warmingSlopeCPerMinute)} °C/min · " +
+                                            "Continuous ${trend.continuousSegmentMs / 1000L}s · " +
+                                            trend.evidence.name,
+                                        color = Ink
+                                    )
+                                }
+                            }
+                            Text(
+                                "Short runs and missing readings cannot establish a thermal " +
+                                    "trend. A temperature rise does not prove throttling.",
+                                color = Subtle
+                            )
                             listOf(
                                 DukoMetric.CPU_LOAD,
                                 DukoMetric.GPU_LOAD,
