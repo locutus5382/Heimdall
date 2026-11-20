@@ -16,7 +16,7 @@ import com.locutus5382.heimdall.engine.duko.DukoMetricAnalysis
 import com.locutus5382.heimdall.engine.duko.DukoObservation
 import com.locutus5382.heimdall.engine.duko.DukoSessionIntegrity
 import com.locutus5382.heimdall.engine.duko.DukoSessionOutcome
-import com.locutus5382.heimdall.engine.duko.DukoStatistics
+import com.locutus5382.heimdall.engine.duko.DukoStatisticsAccumulator
 import com.locutus5382.heimdall.engine.duko.DukoWindow
 import com.locutus5382.heimdall.engine.duko.MeasurementOrigin
 import kotlinx.coroutines.Dispatchers
@@ -92,28 +92,37 @@ internal class DukoSessionAnalyzer(
                 ?.takeIf { it.isNotBlank() } ?: "CPU_THERMAL_UNVERIFIED"
             val gpuTempSource = snapshotJson?.optString("gpuTempSource")
                 ?.takeIf { it.isNotBlank() } ?: "GPU_THERMAL_UNVERIFIED"
-            if (selectedWindow != null) {
-                // Validation is independent of the selected-row cursor; a
-                // range outside captured monotonic time must not be presented
-                // as a fully covered recording. MIN/MAX ignore legacy nulls.
-                val recorded = database.rawQuery(
-                    """SELECT MIN(elapsed_ms), MAX(elapsed_ms) FROM samples
-                       WHERE session_id=? AND elapsed_ms>=0""",
-                    arrayOf(sessionId.toString())
-                ).use { c ->
-                    if (!c.moveToFirst() || c.isNull(0) || c.isNull(1))
-                        null else c.getLong(0) to c.getLong(1)
-                } ?: return@withContext null
-                if (selectedWindow.startMs < recorded.first ||
-                    selectedWindow.endMs > recorded.second)
-                    return@withContext null
+            // Full-session analysis obtains bounds without materializing all
+            // 11 sensor histories. The v6 range index serves this query too.
+            val recorded = database.rawQuery(
+                """SELECT MIN(elapsed_ms), MAX(elapsed_ms) FROM samples
+                   WHERE session_id=? AND elapsed_ms>=0""",
+                arrayOf(sessionId.toString())
+            ).use { c ->
+                if (!c.moveToFirst() || c.isNull(0) || c.isNull(1))
+                    null else c.getLong(0) to c.getLong(1)
+            } ?: return@withContext null
+            if (selectedWindow != null &&
+                (selectedWindow.startMs < recorded.first ||
+                    selectedWindow.endMs > recorded.second))
+                return@withContext null
+            val window = selectedWindow ?: run {
+                if (recorded.second <= recorded.first) return@withContext null
+                DukoWindow(recorded.first, recorded.second)
             }
-            val series = selectedMetrics.associateWith {
-                ArrayList<DukoObservation>()
+            val cadence = session.second.coerceIn(250L, 60_000L)
+            val accumulators = selectedMetrics.associateWith {
+                DukoStatisticsAccumulator(it, window, cadence)
             }
+            // Only temperature trend fitting and battery energy still retain
+            // their per-tick objects. All 11 numeric metric summaries consume
+            // the cursor incrementally and retain only scalar order statistics.
+            val thermalSeries = listOf(
+                DukoMetric.BATTERY_TEMPERATURE,
+                DukoMetric.CPU_TEMPERATURE,
+                DukoMetric.GPU_TEMPERATURE
+            ).associateWith { ArrayList<DukoObservation>() }
             val batteryPoints = ArrayList<DukoBatteryPoint>()
-            var first: Long? = null
-            var last: Long? = null
             val selectedSql = if (selectedWindow == null) "" else
                 " AND elapsed_ms>=? AND elapsed_ms<=?"
             // For a narrow selection the old (session_id,id) index scans the
@@ -141,8 +150,6 @@ internal class DukoSessionAnalyzer(
                     if (c.isNull(0)) continue // Legacy row, no valid elapsed clock
                     val t = c.getLong(0)
                     if (t < 0) continue
-                    if (t < (first ?: Long.MAX_VALUE)) first = t
-                    if (t > (last ?: Long.MIN_VALUE)) last = t
                     batteryPoints += DukoBatteryPoint(
                         elapsedMs = t,
                         currentMicroAmps = if (c.isNull(9)) null else c.getLong(9),
@@ -184,22 +191,16 @@ internal class DukoSessionAnalyzer(
                             else -> "Android Battery/Memory API" to
                                 MeasurementOrigin.ANDROID_API
                         }
-                        series.getValue(metric).add(
-                            DukoObservation(t, metric, value,
-                                sourceId = src, origin = origin)
+                        val observation = DukoObservation(
+                            t, metric, value, sourceId = src, origin = origin
                         )
+                        accumulators.getValue(metric).accept(observation)
+                        thermalSeries[metric]?.add(observation)
                     }
                 }
             }
-            val window = selectedWindow ?: run {
-                val start = first ?: return@withContext null
-                val end = last ?: return@withContext null
-                if (end <= start) return@withContext null
-                DukoWindow(start, end)
-            }
-            val cadence = session.second.coerceIn(250L, 60_000L)
-            val reports = series.mapValues { (metric, observations) ->
-                DukoStatistics.analyze(metric, window, observations, cadence)
+            val reports = accumulators.mapValues { (_, accumulator) ->
+                accumulator.finish()
             }
             val outcome = when (session.first) {
                 "INTERRUPTED" -> DukoSessionOutcome.INTERRUPTED
@@ -214,7 +215,7 @@ internal class DukoSessionAnalyzer(
                 DukoMetric.GPU_TEMPERATURE
             ).associateWith { metric ->
                 DukoThermal.analyze(
-                    metric, window, series.getValue(metric), cadence
+                    metric, window, thermalSeries.getValue(metric), cadence
                 )
             }
             DukoFoundationReport(
