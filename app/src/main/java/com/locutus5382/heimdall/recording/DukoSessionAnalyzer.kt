@@ -5,7 +5,7 @@ import android.os.BatteryManager
 import com.locutus5382.heimdall.engine.duko.DukoEvidence
 import com.locutus5382.heimdall.engine.duko.DukoBatteryPoint
 import com.locutus5382.heimdall.engine.duko.DukoBatteryStatus
-import com.locutus5382.heimdall.engine.duko.DukoEnergy
+import com.locutus5382.heimdall.engine.duko.DukoEnergyAccumulator
 import com.locutus5382.heimdall.engine.duko.DukoConfidence
 import com.locutus5382.heimdall.engine.duko.DukoConfidenceReport
 import com.locutus5382.heimdall.engine.duko.DukoEnergyReport
@@ -114,15 +114,15 @@ internal class DukoSessionAnalyzer(
             val accumulators = selectedMetrics.associateWith {
                 DukoStatisticsAccumulator(it, window, cadence)
             }
-            // Only temperature trend fitting and battery energy still retain
-            // their per-tick objects. All 11 numeric metric summaries consume
-            // the cursor incrementally and retain only scalar order statistics.
+            // Only temperature trend fitting retains per-tick objects.
+            // Numeric metrics and battery energy now consume the cursor
+            // incrementally while preserving exact report definitions.
             val thermalSeries = listOf(
                 DukoMetric.BATTERY_TEMPERATURE,
                 DukoMetric.CPU_TEMPERATURE,
                 DukoMetric.GPU_TEMPERATURE
             ).associateWith { ArrayList<DukoObservation>() }
-            val batteryPoints = ArrayList<DukoBatteryPoint>()
+            val batteryEnergy = DukoEnergyAccumulator(window, cadence)
             val selectedSql = if (selectedWindow == null) "" else
                 " AND elapsed_ms>=? AND elapsed_ms<=?"
             // For a narrow selection the old (session_id,id) index scans the
@@ -150,7 +150,7 @@ internal class DukoSessionAnalyzer(
                     if (c.isNull(0)) continue // Legacy row, no valid elapsed clock
                     val t = c.getLong(0)
                     if (t < 0) continue
-                    batteryPoints += DukoBatteryPoint(
+                    batteryEnergy.accept(DukoBatteryPoint(
                         elapsedMs = t,
                         currentMicroAmps = if (c.isNull(9)) null else c.getLong(9),
                         voltageMilliVolts = if (c.isNull(10)) null else c.getInt(10),
@@ -168,7 +168,7 @@ internal class DukoSessionAnalyzer(
                                 DukoBatteryStatus.FULL
                             else -> DukoBatteryStatus.UNKNOWN
                         }
-                    )
+                    ))
                     for (i in selectedMetrics.indices) {
                         val metric = selectedMetrics[i]
                         val value = if (c.isNull(i + 1)) null
@@ -208,7 +208,7 @@ internal class DukoSessionAnalyzer(
                 else -> DukoSessionOutcome.NEEDS_RECOVERY
             }
             val integrity = DukoSessionIntegrity(outcome, reports)
-            val energy = DukoEnergy.analyze(window, batteryPoints, cadence)
+            val energy = batteryEnergy.finish()
             val thermal = listOf(
                 DukoMetric.BATTERY_TEMPERATURE,
                 DukoMetric.CPU_TEMPERATURE,
