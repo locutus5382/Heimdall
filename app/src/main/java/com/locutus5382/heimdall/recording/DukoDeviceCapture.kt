@@ -24,7 +24,9 @@ internal object DukoDeviceCapture {
     }.getOrNull()
 
     fun probe(context: Context): DukoDeviceProfile {
-        val catalog = SensorCatalog.get(context.applicationContext)
+        // Per-START refresh occurs from LocalRecordingStore.begin() on IO,
+        // BEFORE the database transaction, never on Service.onCreate.
+        val catalog = SensorCatalog.refresh(context.applicationContext)
         return DukoDeviceProfile(
             capturedAtMs = System.currentTimeMillis(),
             manufacturer = Build.MANUFACTURER.orEmpty(),

@@ -18,9 +18,17 @@ import java.io.File
  * same SensorCatalog used by Diagnostics; no hardcoded Odin battery Wh or
  * assumed Snapdragon policy0/3/7 topology.
  */
-internal class AndroidTelemetrySource(context: Context) : DeviceSampleSource {
+internal class AndroidTelemetrySource(
+    context: Context,
+    // Test seam: the discovery callback must not execute during construction.
+    private val discover: (Context) -> SensorCatalog = { SensorCatalog.get(it) },
+) : DeviceSampleSource {
     private val app = context.applicationContext
-    private val catalog = SensorCatalog.get(app)
+    // Service.onCreate constructs this object on Main. Sysfs discovery happens
+    // only on the first read(), inside withContext(Dispatchers.IO), never here.
+    private val catalog: SensorCatalog by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        discover(app)
+    }
     private val manager = app.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
     private val power = app.getSystemService(Context.POWER_SERVICE) as PowerManager
     private val activity = app.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
