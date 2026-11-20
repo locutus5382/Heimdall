@@ -67,13 +67,7 @@ internal class SensorCatalog private constructor(private val app: Context) {
     ).distinctBy { it.absolutePath }.filter { parseBusy(readLine(it)) != null }
 
     val thermalZones: List<ThermalNode> = runCatching {
-        File("/sys/class/thermal").listFiles()
-            ?.filter { it.name.startsWith("thermal_zone") }
-            ?.mapNotNull { dir ->
-                val type = readLine(File(dir, "type")) ?: return@mapNotNull null
-                val sensor = File(dir, "temp")
-                if (temperature(sensor) != null) ThermalNode(type, sensor) else null
-            }?.take(24).orEmpty()
+        discoverThermalNodes(File("/sys/class/thermal").listFiles().orEmpty().toList())
     }.getOrDefault(emptyList())
 
     val cpuTemperatureNode: ThermalNode? = thermalZones.firstOrNull {
@@ -133,6 +127,49 @@ internal class SensorCatalog private constructor(private val app: Context) {
             return synchronized(this) {
                 cached ?: SensorCatalog(context.applicationContext).also { cached = it }
             }
+        }
+
+        /**
+         * One fresh capability snapshot for every new session. All callers
+         * must use Dispatchers.IO: discovery reads vendor sysfs nodes.
+         * Diagnostics may reuse the latest snapshot between recordings.
+         */
+        fun refresh(context: Context): SensorCatalog = synchronized(this) {
+            SensorCatalog(context.applicationContext).also { cached = it }
+        }
+
+        /**
+         * Deterministic thermal discovery. OEMs may expose dozens of zones.
+         * Prioritize CPU/GPU nodes before the 24-node read budget so a random
+         * directory enumeration does not silently exclude the useful ones.
+         * This chooses a stable representative source, not necessarily the
+         * hottest sensor; never claim hotspot accuracy without calibration.
+         *
+         * Package-visible input makes the algorithm testable with temporary
+         * directories rather than relying on a particular OEM's sysfs.
+         */
+        internal fun discoverThermalNodes(directories: List<File>): List<ThermalNode> {
+            val thermalPattern = Regex("thermal_zone[0-9]+")
+            val candidates = directories
+                .filter { it.name.matches(thermalPattern) }
+                .sortedBy { it.name.removePrefix("thermal_zone").toIntOrNull()
+                    ?: Int.MAX_VALUE }
+                .mapNotNull { dir ->
+                    val type = readLine(File(dir, "type")) ?: return@mapNotNull null
+                    ThermalNode(type, File(dir, "temp"))
+                }
+            fun relevant(type: String): Boolean {
+                val t = type.lowercase(Locale.ROOT)
+                return t.contains("cpu") || t.contains("cpuss") ||
+                    t.contains("big") || t.contains("silver") ||
+                    t.contains("gpu") || t.contains("gpuss")
+            }
+            val prioritized = candidates.filter { relevant(it.type) } +
+                candidates.filterNot { relevant(it.type) }
+            return prioritized.asSequence()
+                .filter { temperature(it.file) != null }
+                .take(24)
+                .toList()
         }
 
         private fun readLine(file: File): String? = runCatching {
