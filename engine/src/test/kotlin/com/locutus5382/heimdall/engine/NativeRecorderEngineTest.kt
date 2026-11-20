@@ -1,6 +1,8 @@
 package com.locutus5382.heimdall.engine
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -331,6 +333,144 @@ class NativeRecorderEngineTest {
         assertTrue("User STOP must still finalize original evidence row", engine.stop())
         assertNull(store.active)
         assertEquals(1, store.finishes)
+    }
+
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun stopDuringBlockedHardwarePreparationPreventsPhantomSession() = runTest {
+        val base = FakeStore()
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val store = object : RecordingPersistence by base {
+            override suspend fun prepareStart(): RecordingPreparation {
+                started.complete(Unit)
+                release.await()
+                return EmptyRecordingPreparation
+            }
+        }
+        val engine = NativeRecorderEngine(FakeSource(), store, backgroundScope,
+            monotonicNowMs = { testScheduler.currentTime })
+        val pending = async { engine.start() }
+        started.await()
+        assertTrue(engine.status.value is RecorderStatus.Preparing)
+        // The old implementation held the Mutex throughout discovery. This
+        // call would be blocked forever until the vendor probe returned.
+        assertTrue(engine.stop())
+        assertEquals(RecorderStatus.Idle, engine.status.value)
+        release.complete(Unit)
+        assertFalse(pending.await())
+        assertNull("Cancelled preparation must never create a session", base.active)
+        assertEquals(7L, base.nextId)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun failedForegroundStartInvalidatesSlowPreflight() = runTest {
+        val base = FakeStore()
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val store = object : RecordingPersistence by base {
+            override suspend fun prepareStart(): RecordingPreparation {
+                started.complete(Unit)
+                release.await()
+                return EmptyRecordingPreparation
+            }
+        }
+        val engine = NativeRecorderEngine(FakeSource(), store, backgroundScope,
+            monotonicNowMs = { testScheduler.currentTime })
+        val pending = async { engine.start() }
+        started.await()
+        engine.reportStartFailure("FOREGROUND_NOT_ALLOWED")
+        assertEquals("FOREGROUND_NOT_ALLOWED",
+            (engine.status.value as RecorderStatus.NeedsAttention).code)
+        release.complete(Unit)
+        assertFalse(pending.await())
+        assertNull(base.active)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun hardwarePreparationFailureDoesNotCreateSession() = runTest {
+        val base = FakeStore()
+        val store = object : RecordingPersistence by base {
+            override suspend fun prepareStart(): RecordingPreparation =
+                error("THERMAL_SYSFS_UNAVAILABLE")
+        }
+        val engine = NativeRecorderEngine(FakeSource(), store, backgroundScope)
+        assertFalse(engine.start())
+        assertEquals("SESSION_PREPARATION_FAILED",
+            (engine.status.value as RecorderStatus.NeedsAttention).code)
+        assertNull(base.active)
+        assertEquals(7L, base.nextId)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun recoveryExceptionCannotFallThroughToInterruptedSealing() = runTest {
+        val base = FakeStore().apply { active = 82L; stopDurable = true }
+        var interruptedRecoveryCalled = false
+        val store = object : RecordingPersistence by base {
+            override suspend fun recoverPendingStop(): Long? =
+                error("TRANSIENT_DATABASE_LOCK")
+            override suspend fun recoverInterruptedSession(): Long? {
+                interruptedRecoveryCalled = true
+                return 82L
+            }
+        }
+        val engine = NativeRecorderEngine(FakeSource(), store, backgroundScope)
+        val restored = engine.inspectExisting() as RecorderStatus.NeedsAttention
+        assertEquals(82L, restored.sessionId)
+        assertEquals("STOP_RECOVERY_FAILED", restored.code)
+        assertFalse(interruptedRecoveryCalled)
+        assertEquals(82L, base.active)
+        assertEquals(0, base.finishes)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun samplingUsesMonotonicCadenceRatherThanReadPlusDelay() = runTest {
+        val store = FakeStore()
+        val observed = mutableListOf<Long>()
+        val source = object : DeviceSampleSource {
+            override suspend fun read(): DeviceSample {
+                observed += testScheduler.currentTime
+                delay(150L) // deterministic sensor and persistence processing
+                return DeviceSample(1L, 22.0, 50, 37.0, 2000L, 1200L, null)
+            }
+        }
+        val engine = NativeRecorderEngine(source, store, backgroundScope,
+            intervalMs = 1_000L,
+            monotonicNowMs = { testScheduler.currentTime })
+        assertTrue(engine.start())
+        runCurrent()
+        advanceTimeBy(3_250L)
+        runCurrent()
+        assertEquals(listOf(0L, 1_000L, 2_000L, 3_000L), observed)
+        assertTrue(engine.stop())
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun slowFailedReadCountsTowardThirtySecondOutageBudget() = runTest {
+        val store = FakeStore()
+        val source = object : DeviceSampleSource {
+            override suspend fun read(): DeviceSample {
+                delay(25_000L)
+                error("SLOW_VENDOR_SENSOR")
+            }
+        }
+        val engine = NativeRecorderEngine(source, store, backgroundScope,
+            maximumFailureDurationMs = 30_000L,
+            monotonicNowMs = { testScheduler.currentTime })
+        assertTrue(engine.start())
+        runCurrent()
+        advanceTimeBy(25_100L)
+        runCurrent()
+        assertTrue(engine.status.value is RecorderStatus.Recording)
+        advanceTimeBy(35_000L)
+        runCurrent()
+        val failed = engine.status.value as RecorderStatus.NeedsAttention
+        assertEquals(7L, failed.sessionId)
+        assertEquals("SAMPLE_IO_FAILED", failed.code)
+        assertEquals(7L, store.active)
+        assertEquals(0, store.finishes)
+        assertTrue(engine.stop())
+        assertNull(store.active)
     }
 
 }

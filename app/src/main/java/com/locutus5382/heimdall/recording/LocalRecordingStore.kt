@@ -8,6 +8,7 @@ import android.database.sqlite.SQLiteDatabase
 import com.locutus5382.heimdall.engine.DeviceSample
 import com.locutus5382.heimdall.engine.AppendOutcome
 import com.locutus5382.heimdall.engine.RecordingPersistence
+import com.locutus5382.heimdall.engine.RecordingPreparation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -51,8 +52,16 @@ internal class LocalRecordingStore(
         if (pending != null && finish(pending)) pending else null
     }
 
-    override suspend fun begin(): Long = withContext(Dispatchers.IO) {
-        val preparedContext = dukoContextStore.prepareNewSession()
+    override suspend fun prepareStart(): RecordingPreparation =
+        withContext(Dispatchers.IO) { dukoContextStore.prepareNewSession() }
+
+    // Backward-compatible adapter for direct storage users.
+    override suspend fun begin(): Long = begin(prepareStart())
+
+    override suspend fun begin(prepared: RecordingPreparation): Long =
+        withContext(Dispatchers.IO) {
+        val preparedContext = prepared as? DukoSessionContextStore.PreparedSessionMetadata
+            ?: error("INVALID_SESSION_PREPARATION")
         val database = db.writableDatabase
         database.beginTransaction()
         try {

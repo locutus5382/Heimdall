@@ -45,6 +45,26 @@ class NativeRecorderEngine(
     private val _status = MutableStateFlow<RecorderStatus>(RecorderStatus.Idle)
     val status: StateFlow<RecorderStatus> = _status
     private var samplerJob: Job? = null
+    // Guarded by mutex. STOP invalidates an in-flight START preparation,
+    // even when a vendor sysfs reader has not returned yet.
+    private var startGeneration: Long = 0L
+    private suspend fun failPreparing(generation: Long, code: String) {
+        mutex.withLock {
+            if (generation == startGeneration &&
+                _status.value is RecorderStatus.Preparing) {
+                _status.value = RecorderStatus.NeedsAttention(null, code)
+            }
+        }
+    }
+    private suspend fun abandonPreparing(generation: Long) {
+        mutex.withLock {
+            if (generation == startGeneration &&
+                _status.value is RecorderStatus.Preparing) {
+                startGeneration++
+                _status.value = RecorderStatus.Idle
+            }
+        }
+    }
 
     /**
      * Read-only launch inspection, except for a STOP that was durable BEFORE
@@ -63,8 +83,13 @@ class NativeRecorderEngine(
 
         val recovered = try {
             persistence.recoverPendingStop()
+        } catch (cancel: CancellationException) {
+            throw cancel
         } catch (_: Exception) {
-            null // Original session and its lease remain; STOP may be retried.
+            // An exceptional STOP recovery is NOT proof that no durable STOP
+            // exists. Do not fall through to interrupted-session recovery.
+            _status.value = RecorderStatus.NeedsAttention(existing, "STOP_RECOVERY_FAILED")
+            return@withLock _status.value
         }
         if (recovered != null) {
             val count = try {
@@ -92,103 +117,141 @@ class NativeRecorderEngine(
         _status.value
     }
 
-    suspend fun start(): Boolean = mutex.withLock {
-        if (_status.value !is RecorderStatus.Idle &&
-            _status.value !is RecorderStatus.Finished &&
-            !(_status.value is RecorderStatus.NeedsAttention &&
-                (_status.value as RecorderStatus.NeedsAttention).sessionId == null))
-            return@withLock false
+    suspend fun start(): Boolean {
+        val generation = mutex.withLock {
+            if (_status.value !is RecorderStatus.Idle &&
+                _status.value !is RecorderStatus.Finished &&
+                !(_status.value is RecorderStatus.NeedsAttention &&
+                    (_status.value as RecorderStatus.NeedsAttention).sessionId == null))
+                return@withLock null
 
-        _status.value = RecorderStatus.Preparing
-        val existing = try {
-            persistence.unresolvedSessionId()
-        } catch (_: Exception) {
-            _status.value = RecorderStatus.NeedsAttention(null, "STORAGE_UNAVAILABLE")
-            return@withLock false
-        }
-        if (existing != null) {
-            _status.value = RecorderStatus.NeedsAttention(existing, "UNFINISHED_SESSION")
-            return@withLock false
-        }
-        val id = try {
-            persistence.begin()
-        } catch (_: Exception) {
-            _status.value = RecorderStatus.NeedsAttention(null, "SESSION_CREATE_FAILED")
-            return@withLock false
-        }
-        if (id <= 0L) {
-            _status.value = RecorderStatus.NeedsAttention(null, "INVALID_SESSION_ID")
-            return@withLock false
-        }
-        val sessionStart = try {
-            persistence.sessionStartElapsedMs(id)
-        } catch (_: Exception) { null }
-        _status.value = RecorderStatus.Recording(
-            id, 0L, startedElapsedMs = sessionStart
-        )
-        // One writer owns this session, so a successful append increments its
-        // durable sample count without an O(N) COUNT(*) scan every 2 seconds.
-        // STOP still queries SQLite for its authoritative final count.
-        var successfulWrites = 0L
-        samplerJob = scope.launch {
-            var outageStartedMs: Long? = null
-            var nextRetryDelayMs = retryDelayMs
-            while (isActive) {
-                try {
-                    val sample = source.read()
-                    when (persistence.appendOutcome(id, sample)) {
-                        AppendOutcome.WRITTEN -> {
-                            successfulWrites++
-                            // One durable write closes the current outage.
-                            outageStartedMs = null
-                            nextRetryDelayMs = retryDelayMs
-                            // Never overwrite a newer STOP/SAVING/attention state.
-                            _status.update { current ->
-                                if (current is RecorderStatus.Recording &&
-                                    current.sessionId == id)
-                                    current.copy(persistedSamples = successfulWrites, last = sample)
-                                else current
-                            }
-                        }
-                        AppendOutcome.STOP_REQUESTED -> {
-                            // Normal racing tick after a durable STOP. No error.
-                            break
-                        }
-                        AppendOutcome.RETRYABLE_ERROR -> error("SAMPLE_WRITE_FAILED")
+            _status.value = RecorderStatus.Preparing
+            ++startGeneration
+        } ?: return false
+
+        // All sysfs discovery runs BEFORE the command mutex is acquired for
+        // the short durable commit. A STOP during this phase invalidates the
+        // generation and prevents an eventual stale START from opening a row.
+        var failureCode = "STORAGE_UNAVAILABLE"
+        try {
+            val existing = persistence.unresolvedSessionId()
+            if (existing != null) {
+                mutex.withLock {
+                    if (generation == startGeneration &&
+                        _status.value is RecorderStatus.Preparing) {
+                        _status.value =
+                            RecorderStatus.NeedsAttention(existing, "UNFINISHED_SESSION")
                     }
-                    delay(intervalMs)
+                }
+                return false
+            }
+
+            failureCode = "SESSION_PREPARATION_FAILED"
+            val preparation = persistence.prepareStart()
+            failureCode = "SESSION_CREATE_FAILED"
+            return mutex.withLock {
+                if (generation != startGeneration ||
+                    _status.value !is RecorderStatus.Preparing) return@withLock false
+
+                // The SQLite implementation validates unresolved rows again in
+                // the transaction, so a concurrent writer cannot replace one.
+                val id = persistence.begin(preparation)
+                if (id <= 0L) {
+                    _status.value =
+                        RecorderStatus.NeedsAttention(null, "INVALID_SESSION_ID")
+                    return@withLock false
+                }
+                val sessionStart = try {
+                    persistence.sessionStartElapsedMs(id)
                 } catch (cancel: CancellationException) {
                     throw cancel
-                } catch (_: Exception) {
-                    // A transient failure is missing evidence, not a successful
-                    // sample. Do not invent values or overwrite durable rows.
-                    val now = monotonicNowMs()
-                    val started = outageStartedMs ?: now.also { outageStartedMs = it }
-                    val outageMs = (now - started).coerceAtLeast(0L)
-                    if (outageMs >= maximumFailureDurationMs) {
-                        // Keep the unfinished SQLite row and original ID available
-                        // for review/STOP; never auto-finalize an I/O outage.
-                        _status.update { current ->
-                            if (current is RecorderStatus.Recording &&
-                                current.sessionId == id)
-                                RecorderStatus.NeedsAttention(id, "SAMPLE_IO_FAILED")
-                            else current
+                } catch (_: Exception) { null }
+                _status.value = RecorderStatus.Recording(
+                    id, 0L, startedElapsedMs = sessionStart
+                )
+                // Only durable appended rows count; never silently synthesize
+                // a sample or replace an unfinished original session.
+                var successfulWrites = 0L
+                samplerJob = scope.launch {
+                    var outageStartedMs: Long? = null
+                    var nextRetryDelayMs = retryDelayMs
+                    var nextTickMs = monotonicNowMs()
+                    while (isActive) {
+                        val tickStartMs = monotonicNowMs()
+                        try {
+                            val sample = source.read()
+                            when (persistence.appendOutcome(id, sample)) {
+                                AppendOutcome.WRITTEN -> {
+                                    successfulWrites++
+                                    outageStartedMs = null
+                                    nextRetryDelayMs = retryDelayMs
+                                    _status.update { current ->
+                                        if (current is RecorderStatus.Recording &&
+                                            current.sessionId == id)
+                                            current.copy(persistedSamples = successfulWrites,
+                                                last = sample)
+                                        else current
+                                    }
+                                }
+                                AppendOutcome.STOP_REQUESTED -> break
+                                AppendOutcome.RETRYABLE_ERROR -> error("SAMPLE_WRITE_FAILED")
+                            }
+                            // Deadline scheduling avoids adding sysfs+SQLite
+                            // processing latency to every sampling interval.
+                            val now = monotonicNowMs()
+                            val scheduled = nextTickMs + intervalMs
+                            nextTickMs = if (now - scheduled > intervalMs)
+                                now + intervalMs else scheduled
+                            delay((nextTickMs - now).coerceAtLeast(0L))
+                        } catch (cancel: CancellationException) {
+                            throw cancel
+                        } catch (_: Exception) {
+                            // Count a slow failing read/write in the outage
+                            // budget, not only the period after it throws.
+                            val now = monotonicNowMs()
+                            val started = outageStartedMs
+                                ?: tickStartMs.also { outageStartedMs = it }
+                            if ((now - started).coerceAtLeast(0L) >=
+                                maximumFailureDurationMs) {
+                                _status.update { current ->
+                                    if (current is RecorderStatus.Recording &&
+                                        current.sessionId == id)
+                                        RecorderStatus.NeedsAttention(id, "SAMPLE_IO_FAILED")
+                                    else current
+                                }
+                                break
+                            }
+                            delay(nextRetryDelayMs)
+                            nextRetryDelayMs =
+                                if (nextRetryDelayMs >= maximumRetryDelayMs)
+                                    maximumRetryDelayMs
+                                else (nextRetryDelayMs * 2L).coerceAtMost(
+                                    maximumRetryDelayMs)
+                            // A recovered tick establishes a fresh deadline.
+                            nextTickMs = monotonicNowMs()
                         }
-                        break
                     }
-                    delay(nextRetryDelayMs)
-                    // Bounded 250 -> 500 -> 1000 -> 2000 ms retry spacing.
-                    nextRetryDelayMs = if (nextRetryDelayMs >= maximumRetryDelayMs)
-                        maximumRetryDelayMs
-                    else (nextRetryDelayMs * 2L).coerceAtMost(maximumRetryDelayMs)
                 }
+                true
             }
+        } catch (cancel: CancellationException) {
+            abandonPreparing(generation)
+            throw cancel
+        } catch (_: Exception) {
+            failPreparing(generation, failureCode)
+            return false
         }
-        true
     }
 
     suspend fun stop(): Boolean = mutex.withLock {
         val state = _status.value
+        if (state is RecorderStatus.Preparing) {
+            // There is no session ID to finalize yet; invalidate the pending
+            // hardware preflight and prevent a delayed commit.
+            startGeneration++
+            _status.value = RecorderStatus.Idle
+            return@withLock true
+        }
         val id = when (state) {
             is RecorderStatus.Recording -> state.sessionId
             is RecorderStatus.Stopping -> state.sessionId
@@ -236,12 +299,15 @@ class NativeRecorderEngine(
     }
 
     /** Service-only failure before a session has been created. */
-    fun reportStartFailure(code: String) {
-        _status.update { old ->
-            if (old is RecorderStatus.Idle || old is RecorderStatus.Preparing ||
-                old is RecorderStatus.Finished ||
-                (old is RecorderStatus.NeedsAttention && old.sessionId == null)
-            ) RecorderStatus.NeedsAttention(null, code) else old
+    suspend fun reportStartFailure(code: String) = mutex.withLock {
+        val old = _status.value
+        if (old is RecorderStatus.Idle || old is RecorderStatus.Preparing ||
+            old is RecorderStatus.Finished ||
+            (old is RecorderStatus.NeedsAttention && old.sessionId == null)) {
+            // A foreground-start rejection must not allow an older preflight
+            // to commit once foreground ownership has been denied.
+            startGeneration++
+            _status.value = RecorderStatus.NeedsAttention(null, code)
         }
     }
 
@@ -266,8 +332,11 @@ class NativeRecorderEngine(
             is RecorderStatus.Saving -> current.sessionId
             else -> null
         }
-        samplerJob?.cancelAndJoin()
-        samplerJob = null
+        val active = samplerJob
+        active?.cancel()
+        val joined = if (active == null) true else
+            (withTimeoutOrNull(2_000L) { active.join(); true } ?: false)
+        if (joined) samplerJob = null
         if (id != null) _status.value =
             RecorderStatus.NeedsAttention(id, "SERVICE_INTERRUPTED")
     }

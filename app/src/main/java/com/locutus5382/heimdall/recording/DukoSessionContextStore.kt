@@ -3,6 +3,7 @@ package com.locutus5382.heimdall.recording
 import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
+import com.locutus5382.heimdall.engine.RecordingPreparation
 import com.locutus5382.heimdall.engine.duko.DukoSessionContext
 import com.locutus5382.heimdall.engine.duko.MeasurementOrigin
 import kotlinx.coroutines.Dispatchers
@@ -68,7 +69,7 @@ internal class DukoSessionContextStore(
         val contractVersion: Int,
         val capturedAtMs: Long,
         val profileJson: String,
-    )
+    ) : RecordingPreparation
 
     fun prepareNewSession(): PreparedSessionMetadata {
         val draft = readDraft()

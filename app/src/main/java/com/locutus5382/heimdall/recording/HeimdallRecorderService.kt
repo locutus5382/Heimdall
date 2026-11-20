@@ -82,7 +82,9 @@ class HeimdallRecorderService : Service() {
                 }
             }
         }
-        scope.launch { engine.inspectExisting() }
+        // The visible Activity and cold Quick Settings tile send a tracked
+        // INSPECT command. A second, untracked onCreate inspection could race
+        // START and conceal an interrupted session.
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -117,9 +119,16 @@ class HeimdallRecorderService : Service() {
             foregroundLive = true
             notificationGate.reset()
         } catch (_: Exception) {
-            engine.reportStartFailure("FOREGROUND_NOT_ALLOWED")
-            commandTracker.finish()
-            stopIfNoCommandsAndTerminal()
+            // The engine failure transition is mutex-serialized; retain the
+            // command lease until that transition finishes.
+            scope.launch {
+                try {
+                    engine.reportStartFailure("FOREGROUND_NOT_ALLOWED")
+                } finally {
+                    commandTracker.finish()
+                    stopIfNoCommandsAndTerminal()
+                }
+            }
             return START_NOT_STICKY
         }
         scope.launch {
