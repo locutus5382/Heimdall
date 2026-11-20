@@ -120,6 +120,7 @@ class BatteryEvidenceV5Test {
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     session_id INTEGER NOT NULL,
                     time_ms INTEGER NOT NULL,
+                    elapsed_ms INTEGER,
                     battery_current_ua INTEGER,
                     battery_voltage_mv INTEGER,
                     battery_plugged INTEGER
