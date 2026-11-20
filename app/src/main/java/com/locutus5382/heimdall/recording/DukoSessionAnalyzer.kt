@@ -54,8 +54,16 @@ internal class DukoSessionAnalyzer(
         DukoMetric.AVAILABLE_RAM,
     )
 
-    suspend fun analyze(sessionId: Long): DukoFoundationReport? =
-        withContext(Dispatchers.IO) {
+    /**
+     * An explicit monotonic window is evaluated against the recorded session
+     * range. Invalid/out-of-range selections return null; in-range empty
+     * selections produce INSUFFICIENT evidence instead of fabricated samples.
+     * Never load and slice the whole session in Kotlin for a small selection.
+     */
+    suspend fun analyze(
+        sessionId: Long,
+        selectedWindow: DukoWindow? = null,
+    ): DukoFoundationReport? = withContext(Dispatchers.IO) {
             require(sessionId > 0L)
             val database = helper.readableDatabase
             val session = database.rawQuery(
@@ -84,20 +92,44 @@ internal class DukoSessionAnalyzer(
                 ?.takeIf { it.isNotBlank() } ?: "CPU_THERMAL_UNVERIFIED"
             val gpuTempSource = snapshotJson?.optString("gpuTempSource")
                 ?.takeIf { it.isNotBlank() } ?: "GPU_THERMAL_UNVERIFIED"
+            if (selectedWindow != null) {
+                // Validation is independent of the selected-row cursor; a
+                // range outside captured monotonic time must not be presented
+                // as a fully covered recording. MIN/MAX ignore legacy nulls.
+                val recorded = database.rawQuery(
+                    """SELECT MIN(elapsed_ms), MAX(elapsed_ms) FROM samples
+                       WHERE session_id=? AND elapsed_ms>=0""",
+                    arrayOf(sessionId.toString())
+                ).use { c ->
+                    if (!c.moveToFirst() || c.isNull(0) || c.isNull(1))
+                        null else c.getLong(0) to c.getLong(1)
+                } ?: return@withContext null
+                if (selectedWindow.startMs < recorded.first ||
+                    selectedWindow.endMs > recorded.second)
+                    return@withContext null
+            }
             val series = selectedMetrics.associateWith {
                 ArrayList<DukoObservation>()
             }
             val batteryPoints = ArrayList<DukoBatteryPoint>()
             var first: Long? = null
             var last: Long? = null
+            val selectedSql = if (selectedWindow == null) "" else
+                " AND elapsed_ms>=? AND elapsed_ms<=?"
+            val selectedArgs = if (selectedWindow == null)
+                arrayOf(sessionId.toString()) else arrayOf(
+                    sessionId.toString(),
+                    selectedWindow.startMs.toString(),
+                    selectedWindow.endMs.toString()
+                )
             database.rawQuery(
                 """SELECT elapsed_ms,cpu_load_pct,gpu_load_pct,cpu_clock_mhz,
                           gpu_clock_mhz,battery_temp_c,battery_pct,
                           cpu_temp_c,gpu_temp_c,battery_current_ua,
                           battery_voltage_mv,free_memory_mib,battery_plugged,
                           battery_status
-                   FROM samples WHERE session_id=? ORDER BY id""",
-                arrayOf(sessionId.toString())
+                   FROM samples WHERE session_id=?$selectedSql ORDER BY id""",
+                selectedArgs
             ).use { c ->
                 while (c.moveToNext()) {
                     if (c.isNull(0)) continue // Legacy row, no valid elapsed clock
@@ -153,10 +185,12 @@ internal class DukoSessionAnalyzer(
                     }
                 }
             }
-            val start = first ?: return@withContext null
-            val end = last ?: return@withContext null
-            if (end <= start) return@withContext null
-            val window = DukoWindow(start, end)
+            val window = selectedWindow ?: run {
+                val start = first ?: return@withContext null
+                val end = last ?: return@withContext null
+                if (end <= start) return@withContext null
+                DukoWindow(start, end)
+            }
             val cadence = session.second.coerceIn(250L, 60_000L)
             val reports = series.mapValues { (metric, observations) ->
                 DukoStatistics.analyze(metric, window, observations, cadence)
