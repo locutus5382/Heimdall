@@ -26,13 +26,19 @@ class NativeRecorderEngine(
     private val persistence: RecordingPersistence,
     private val scope: CoroutineScope,
     private val intervalMs: Long = 2_000L,
-    private val maximumConsecutiveFailures: Int = 5,
+    // Outages are measured in elapsed time, not the number of rapid retries.
+    // Five retries at 250 ms used to terminate a recoverable session after ~1 s.
+    private val maximumFailureDurationMs: Long = 30_000L,
     private val retryDelayMs: Long = 250L,
+    private val maximumRetryDelayMs: Long = 2_000L,
+    // Kept injectable for deterministic tests without Android or wall-clock sleeps.
+    private val monotonicNowMs: () -> Long = { System.nanoTime() / 1_000_000L },
 ) {
     init {
         require(intervalMs >= 1_000L)
-        require(maximumConsecutiveFailures in 1..100)
+        require(maximumFailureDurationMs >= 1_000L)
         require(retryDelayMs >= 50L)
+        require(maximumRetryDelayMs >= retryDelayMs)
     }
 
     private val mutex = Mutex()
@@ -125,14 +131,17 @@ class NativeRecorderEngine(
         // STOP still queries SQLite for its authoritative final count.
         var successfulWrites = 0L
         samplerJob = scope.launch {
-            var failures = 0
+            var outageStartedMs: Long? = null
+            var nextRetryDelayMs = retryDelayMs
             while (isActive) {
                 try {
                     val sample = source.read()
                     when (persistence.appendOutcome(id, sample)) {
                         AppendOutcome.WRITTEN -> {
                             successfulWrites++
-                            failures = 0
+                            // One durable write closes the current outage.
+                            outageStartedMs = null
+                            nextRetryDelayMs = retryDelayMs
                             // Never overwrite a newer STOP/SAVING/attention state.
                             _status.update { current ->
                                 if (current is RecorderStatus.Recording &&
@@ -151,9 +160,14 @@ class NativeRecorderEngine(
                 } catch (cancel: CancellationException) {
                     throw cancel
                 } catch (_: Exception) {
-                    failures++
-                    if (failures >= maximumConsecutiveFailures) {
-                        // Session evidence remains durable and reviewable.
+                    // A transient failure is missing evidence, not a successful
+                    // sample. Do not invent values or overwrite durable rows.
+                    val now = monotonicNowMs()
+                    val started = outageStartedMs ?: now.also { outageStartedMs = it }
+                    val outageMs = (now - started).coerceAtLeast(0L)
+                    if (outageMs >= maximumFailureDurationMs) {
+                        // Keep the unfinished SQLite row and original ID available
+                        // for review/STOP; never auto-finalize an I/O outage.
                         _status.update { current ->
                             if (current is RecorderStatus.Recording &&
                                 current.sessionId == id)
@@ -162,8 +176,11 @@ class NativeRecorderEngine(
                         }
                         break
                     }
-                    // A transient failure is a gap, not a silent successful row.
-                    delay(retryDelayMs)
+                    delay(nextRetryDelayMs)
+                    // Bounded 250 -> 500 -> 1000 -> 2000 ms retry spacing.
+                    nextRetryDelayMs = if (nextRetryDelayMs >= maximumRetryDelayMs)
+                        maximumRetryDelayMs
+                    else (nextRetryDelayMs * 2L).coerceAtMost(maximumRetryDelayMs)
                 }
             }
         }
