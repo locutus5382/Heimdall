@@ -1,8 +1,7 @@
 package com.locutus5382.heimdall
 
-import android.content.Context
 import android.os.Looper
-import androidx.test.core.app.ApplicationProvider
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.locutus5382.heimdall.recording.AndroidTelemetrySource
 import com.locutus5382.heimdall.recording.SensorCatalog
@@ -18,7 +17,7 @@ import java.util.concurrent.atomic.AtomicInteger
 @RunWith(AndroidJUnit4::class)
 class SensorDiscoveryTest {
     @Test fun sourceConstructionDefersSysfsDiscoveryToIoRead() = runBlocking {
-        val app = ApplicationProvider.getApplicationContext<Context>()
+        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
         val calls = AtomicInteger(0)
         val probedOnMain = AtomicBoolean(true)
         val source = AndroidTelemetrySource(app) { ctx ->
@@ -35,7 +34,7 @@ class SensorDiscoveryTest {
     }
 
     @Test fun thermalSelectionIsStableAndRetainsHighIndexedCpuGpuZones() {
-        val app = ApplicationProvider.getApplicationContext<Context>()
+        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
         val root = File(app.cacheDir, "heimdall-thermal-test-${System.nanoTime()}")
         assertTrue(root.mkdirs())
         try {
