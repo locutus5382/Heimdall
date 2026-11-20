@@ -49,6 +49,7 @@ object DukoEnergy {
         var invalid = 0
         var pluggedDischarge = 0
         var unknownPlug = 0
+        var higherPackVoltage = 0
         val observations = readings.filter {
             it.elapsedMs in window.startMs..window.endMs
         }.map { point ->
@@ -64,8 +65,9 @@ object DukoEnergy {
                 it in -15_000_000L..-1_000L
             }
             val validVoltage = point.voltageMilliVolts?.takeIf {
-                it in 2_500..5_000
+                it in 2_500..10_000
             }
+            if (validVoltage != null && validVoltage > 5_000) higherPackVoltage++
             val watts = if (validCurrent != null && validVoltage != null) {
                 (-validCurrent.toDouble()) * validVoltage.toDouble() / 1e9
             } else null
@@ -94,6 +96,7 @@ object DukoEnergy {
             summary.evidence == DukoEvidence.INSUFFICIENT ->
                 DukoEvidence.INSUFFICIENT
             pluggedDischarge > 0 || unknownPlug > 0 ||
+                higherPackVoltage > 0 ||
                 summary.evidence == DukoEvidence.QUALIFIED ->
                 DukoEvidence.QUALIFIED
             else -> DukoEvidence.SUPPORTED
@@ -105,6 +108,8 @@ object DukoEnergy {
             if (pluggedDischarge > 0)
                 add("PLUGGED_BATTERY_DISCHARGE_NOT_TOTAL_INPUT")
             if (unknownPlug > 0) add("PLUG_STATE_UNKNOWN")
+            if (higherPackVoltage > 0)
+                add("PACK_VOLTAGE_ABOVE_SINGLE_CELL_REQUIRES_CALIBRATION")
             add("BATTERY_TERMINAL_POWER_NOT_GAME_OR_WALL_POWER")
         }
         return DukoEnergyReport(

@@ -134,6 +134,14 @@ internal class LocalRecordingStore(
                 sample.batteryCurrentUa?.let { put("battery_current_ua", it) }
                 sample.batteryVoltageMv?.let { put("battery_voltage_mv", it) }
                 sample.batteryPlugged?.let { put("battery_plugged", if (it) 1 else 0) }
+                sample.batteryRawCurrentUa?.let { put("battery_raw_current_ua", it) }
+                sample.batteryRawVoltageMv?.let { put("battery_raw_voltage_mv", it) }
+                sample.batteryStatus?.let { put("battery_status", it) }
+                sample.batteryChargeCounterUah?.let { put("battery_charge_counter_uah", it) }
+                sample.batteryEnergyCounterNwh?.let { put("battery_energy_counter_nwh", it) }
+                sample.thermalHeadroomObservedElapsedMs?.let {
+                    put("thermal_headroom_observed_elapsed_ms", it)
+                }
                 sample.gpuLoadPercent?.let { put("gpu_load_pct", it) }
                 sample.cpuTemperatureC?.let { put("cpu_temp_c", it) }
                 sample.gpuTemperatureC?.let { put("gpu_temp_c", it) }

@@ -11,7 +11,7 @@ import android.database.sqlite.SQLiteOpenHelper
  */
 internal object HeimdallDatabase {
     const val NAME = "heimdall_v1.db"
-    private const val VERSION = 4
+    private const val VERSION = 5
     private val instances = mutableMapOf<String, SQLiteOpenHelper>()
 
     @Synchronized
@@ -66,6 +66,12 @@ internal object HeimdallDatabase {
                             battery_current_ua INTEGER,
                             battery_voltage_mv INTEGER,
                             battery_plugged INTEGER,
+                            battery_raw_current_ua INTEGER,
+                            battery_raw_voltage_mv INTEGER,
+                            battery_status INTEGER,
+                            battery_charge_counter_uah INTEGER,
+                            battery_energy_counter_nwh INTEGER,
+                            thermal_headroom_observed_elapsed_ms INTEGER,
                             gpu_load_pct REAL,
                             cpu_temp_c REAL,
                             gpu_temp_c REAL,
@@ -81,7 +87,7 @@ internal object HeimdallDatabase {
                 }
 
                 override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-                    require(oldVersion in 1..3 && newVersion == 4) {
+                    require(oldVersion in 1..4 && newVersion == 5) {
                         "UNSUPPORTED_MIGRATION_${oldVersion}_${newVersion}"
                     }
                     if (oldVersion == 1) {
@@ -143,6 +149,17 @@ internal object HeimdallDatabase {
                     // DUKO stores metadata in additive tables. Raw sessions
                     // and all prior samples remain untouched.
                     createDukoTables(db)
+                    // v5: additive columns. Never rewrite original sample rows.
+                    if (oldVersion <= 4) {
+                        listOf(
+                            "battery_raw_current_ua INTEGER",
+                            "battery_raw_voltage_mv INTEGER",
+                            "battery_status INTEGER",
+                            "battery_charge_counter_uah INTEGER",
+                            "battery_energy_counter_nwh INTEGER",
+                            "thermal_headroom_observed_elapsed_ms INTEGER",
+                        ).forEach { db.execSQL("ALTER TABLE samples ADD COLUMN $it") }
+                    }
                 }
             }
         }
