@@ -82,6 +82,17 @@ class DukoEnergyTest {
         assertTrue("SENSOR_SOURCE_CHANGED" in a.warnings)
     }
 
+    @Test fun widerPackVoltageRequiresCalibrationAndNeverClaimsSupportedEvidence() {
+        val data = (0..5).map {
+            point(it * 2_000L, current = -1_000_000L, voltage = 8_200)
+        }
+        val report = DukoEnergy.analyze(DukoWindow(0, 10_000), data)
+        assertEquals(8.2, report.timeWeightedDischargeWatts!!, 1e-9)
+        assertEquals(DukoEvidence.QUALIFIED, report.evidence)
+        assertTrue("PACK_VOLTAGE_ABOVE_SINGLE_CELL_REQUIRES_CALIBRATION"
+            in report.warnings)
+    }
+
     @Test fun invalidCurrentAndVoltageRangesAreRejected() {
         val a = DukoEnergy.analyze(DukoWindow(0, 2_000), listOf(
             point(0, current = -99_000_000),

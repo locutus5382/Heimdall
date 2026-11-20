@@ -140,7 +140,10 @@ class SessionArchive(context: Context) {
                         writer.write(
                             "sample_id,time_ms,cpu_load_pct,battery_pct,battery_temp_c,free_memory_mib,cpu_clock_mhz,gpu_clock_mhz," +
                             "elapsed_ms,thermal_status,thermal_headroom,battery_current_ua,battery_voltage_mv,battery_plugged,gpu_load_pct," +
-                            "cpu_temp_c,gpu_temp_c,cpu_policy_clocks,cpu_policy_limits,cpu_policy_hardware_max\n"
+                            "cpu_temp_c,gpu_temp_c,cpu_policy_clocks,cpu_policy_limits,cpu_policy_hardware_max," +
+                            "battery_raw_current_ua,battery_raw_voltage_mv,battery_status," +
+                            "battery_charge_counter_uah,battery_energy_counter_nwh," +
+                            "thermal_headroom_observed_elapsed_ms\n"
                         )
                         database.rawQuery(
                             """
@@ -149,7 +152,10 @@ class SessionArchive(context: Context) {
                                    elapsed_ms, thermal_status, thermal_headroom,
                                    battery_current_ua, battery_voltage_mv,
                                    battery_plugged, gpu_load_pct, cpu_temp_c, gpu_temp_c,
-                                   cpu_policy_clocks, cpu_policy_limits, cpu_policy_hardware_max
+                                   cpu_policy_clocks, cpu_policy_limits, cpu_policy_hardware_max,
+                                   battery_raw_current_ua, battery_raw_voltage_mv, battery_status,
+                                   battery_charge_counter_uah, battery_energy_counter_nwh,
+                                   thermal_headroom_observed_elapsed_ms
                             FROM samples WHERE session_id=? ORDER BY id
                             """.trimIndent(),
                             arrayOf(sessionId.toString())

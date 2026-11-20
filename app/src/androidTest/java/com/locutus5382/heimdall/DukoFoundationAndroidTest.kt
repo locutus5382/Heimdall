@@ -154,7 +154,7 @@ class DukoFoundationAndroidTest {
             SQLiteDatabase.openDatabase(
                 file.absolutePath, null, SQLiteDatabase.OPEN_READONLY
             ).use { db ->
-                assertEquals(4, db.version)
+                assertEquals(5, db.version)
                 db.rawQuery("SELECT COUNT(*) FROM samples WHERE session_id=41", null)
                     .use { c ->
                         assertTrue(c.moveToFirst())

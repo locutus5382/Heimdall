@@ -30,7 +30,10 @@ class SensorDiscoveryTest {
         assertEquals(1, calls.get())
         assertFalse("Sysfs discovery must run off main thread", probedOnMain.get())
         source.read()
-        assertEquals("First-read discovery is cached", 1, calls.get())
+        // Each read consults the volatile cached catalog reference so a
+        // per-session refresh cannot leave the sampler pinned to old sysfs.
+        // SensorCatalog.get() itself does not re-enumerate paths each tick.
+        assertEquals("Each tick observes catalog refresh", 2, calls.get())
     }
 
     @Test fun thermalSelectionIsStableAndRetainsHighIndexedCpuGpuZones() {
