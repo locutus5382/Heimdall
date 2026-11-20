@@ -116,6 +116,12 @@ internal class DukoSessionAnalyzer(
             var last: Long? = null
             val selectedSql = if (selectedWindow == null) "" else
                 " AND elapsed_ms>=? AND elapsed_ms<=?"
+            // For a narrow selection the old (session_id,id) index scans the
+            // entire recording. The v6 index bounds the scan in elapsed time.
+            // ORDER BY id still exposes clock reversals in insertion order;
+            // the small selection may require a temporary sort.
+            val selectedFrom = if (selectedWindow == null) "samples" else
+                "samples INDEXED BY samples_session_elapsed_idx"
             val selectedArgs = if (selectedWindow == null)
                 arrayOf(sessionId.toString()) else arrayOf(
                     sessionId.toString(),
@@ -128,7 +134,7 @@ internal class DukoSessionAnalyzer(
                           cpu_temp_c,gpu_temp_c,battery_current_ua,
                           battery_voltage_mv,free_memory_mib,battery_plugged,
                           battery_status
-                   FROM samples WHERE session_id=?$selectedSql ORDER BY id""",
+                   FROM $selectedFrom WHERE session_id=?$selectedSql ORDER BY id""",
                 selectedArgs
             ).use { c ->
                 while (c.moveToNext()) {

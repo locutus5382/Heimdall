@@ -154,12 +154,12 @@ class DukoFoundationAndroidTest {
                 db.setVersion(3)
             }
             val tags = DukoSessionContextStore(app, name)
-            // This read opens the helper and triggers additive v3→v4 migration.
+            // This read opens the helper and triggers additive v3→v6 migration.
             assertNull(tags.deviceProfileJson(41L))
             SQLiteDatabase.openDatabase(
                 file.absolutePath, null, SQLiteDatabase.OPEN_READONLY
             ).use { db ->
-                assertEquals(5, db.version)
+                assertEquals(6, db.version)
                 db.rawQuery("SELECT COUNT(*) FROM samples WHERE session_id=41", null)
                     .use { c ->
                         assertTrue(c.moveToFirst())
