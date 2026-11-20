@@ -50,6 +50,14 @@ interface DeviceSampleSource {
     suspend fun read(): DeviceSample
 }
 
+/**
+ * Type-safe opaque preflight result. Pure engine code never inspects device
+ * metadata, while Android storage can prepare costly sysfs discovery off
+ * the recorder command mutex.
+ */
+interface RecordingPreparation
+data object EmptyRecordingPreparation : RecordingPreparation
+
 /** A denied append after durable STOP is an expected race, not an I/O failure. */
 enum class AppendOutcome { WRITTEN, STOP_REQUESTED, RETRYABLE_ERROR }
 
@@ -65,8 +73,18 @@ interface RecordingPersistence {
      * inventing samples or replacing its ID; null if ownership is ambiguous.
      * Legacy test doubles may retain the older explicit review flow. */
     suspend fun recoverInterruptedSession(): Long? = null
+    /**
+     * Potentially slow device discovery and metadata preparation. Called
+     * OUTSIDE the recorder command mutex; never creates a session row.
+     */
+    suspend fun prepareStart(): RecordingPreparation = EmptyRecordingPreparation
     /** Creates one session row and its matching recovery lease. */
     suspend fun begin(): Long
+    /**
+     * Short durable commit phase. Implementations should not scan hardware
+     * here; the default is compatible with legacy persistence adapters.
+     */
+    suspend fun begin(prepared: RecordingPreparation): Long = begin()
     /** Same monotonic origin stored durably with the session. */
     suspend fun sessionStartElapsedMs(sessionId: Long): Long? = null
     suspend fun append(sessionId: Long, sample: DeviceSample): Boolean
