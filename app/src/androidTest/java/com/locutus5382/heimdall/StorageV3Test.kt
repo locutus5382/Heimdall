@@ -47,7 +47,7 @@ class StorageV3Test {
             app.getDatabasePath(name).absolutePath,
             null, SQLiteDatabase.OPEN_READONLY
         ).use { db ->
-            assertEquals(5, db.version)
+            assertEquals(6, db.version)
             db.rawQuery("PRAGMA journal_mode", null).use { c ->
                 assertTrue(c.moveToFirst())
                 assertEquals("wal", c.getString(0).lowercase())

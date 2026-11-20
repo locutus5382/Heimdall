@@ -77,7 +77,7 @@ class BatteryEvidenceV5Test {
                 app.getDatabasePath(name).absolutePath, null,
                 SQLiteDatabase.OPEN_READONLY
             ).use { db ->
-                assertEquals(5, db.version)
+                assertEquals(6, db.version)
                 db.rawQuery(
                     """SELECT battery_current_ua, battery_raw_current_ua,
                               battery_raw_voltage_mv, battery_status,
@@ -99,7 +99,7 @@ class BatteryEvidenceV5Test {
             }
         }
 
-    @Test fun v4DatabaseMigratesToV5WithoutChangingOldValuesOrIds() = runBlocking {
+    @Test fun v4DatabaseMigratesThroughV5ToV6WithoutChangingOldValuesOrIds() = runBlocking {
         val app = InstrumentationRegistry.getInstrumentation().targetContext
         val name = "heimdall_v4_to_v5_fixture.db"
         app.deleteDatabase(name)
@@ -148,7 +148,7 @@ class BatteryEvidenceV5Test {
         SQLiteDatabase.openDatabase(
             dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY
         ).use { db ->
-            assertEquals(5, db.version)
+            assertEquals(6, db.version)
             db.rawQuery("""
                 SELECT id, session_id, time_ms, battery_current_ua,
                        battery_voltage_mv, battery_raw_current_ua,

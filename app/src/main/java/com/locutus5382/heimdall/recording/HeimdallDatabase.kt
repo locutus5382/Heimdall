@@ -11,7 +11,8 @@ import android.database.sqlite.SQLiteOpenHelper
  */
 internal object HeimdallDatabase {
     const val NAME = "heimdall_v1.db"
-    private const val VERSION = 5
+    // v6 adds only a session-scoped elapsed-time index; sample data is unchanged.
+    private const val VERSION = 6
     private val instances = mutableMapOf<String, SQLiteOpenHelper>()
 
     @Synchronized
@@ -82,12 +83,16 @@ internal object HeimdallDatabase {
                         )
                     """.trimIndent())
                     db.execSQL("CREATE INDEX samples_session_idx ON samples(session_id,id)")
+                    db.execSQL(
+                        "CREATE INDEX samples_session_elapsed_idx " +
+                            "ON samples(session_id,elapsed_ms,id)"
+                    )
                     db.execSQL("CREATE INDEX sessions_state_idx ON sessions(status,id)")
                     createDukoTables(db)
                 }
 
                 override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-                    require(oldVersion in 1..4 && newVersion == 5) {
+                    require(oldVersion in 1..5 && newVersion == 6) {
                         "UNSUPPORTED_MIGRATION_${oldVersion}_${newVersion}"
                     }
                     if (oldVersion == 1) {
@@ -160,6 +165,13 @@ internal object HeimdallDatabase {
                             "thermal_headroom_observed_elapsed_ms INTEGER",
                         ).forEach { db.execSQL("ALTER TABLE samples ADD COLUMN $it") }
                     }
+                    // v6: index only. Preserve all existing session IDs, rows,
+                    // raw battery readings, timestamps and test context data.
+                    // SQLiteOpenHelper runs onUpgrade inside a transaction.
+                    db.execSQL(
+                        "CREATE INDEX IF NOT EXISTS samples_session_elapsed_idx " +
+                            "ON samples(session_id,elapsed_ms,id)"
+                    )
                 }
             }
         }
