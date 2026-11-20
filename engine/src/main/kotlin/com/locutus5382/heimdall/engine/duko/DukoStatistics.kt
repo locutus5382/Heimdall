@@ -65,6 +65,9 @@ object DukoStatistics {
         var missing = 0
         var reversed = 0
         var sourceSwitches = 0
+        // Track the last valid sensor even across null/invalid ticks. Such
+        // ticks break integration, but cannot erase a real provenance change.
+        var lastValidSource: Pair<String?, MeasurementOrigin>? = null
         var coverageMs = 0L
         var longestGap = 0L
         var weightedIntegral = 0.0
@@ -79,14 +82,23 @@ object DukoStatistics {
             precedingTime = row.elapsedMs
             val currentValid = row.isValid()
             if (!currentValid) missing++ else values += requireNotNull(row.value)
+            if (currentValid) {
+                val identity = row.sourceId?.trim()
+                    ?.takeIf { it.isNotEmpty() } to row.origin
+                if (lastValidSource != null && lastValidSource != identity)
+                    sourceSwitches++
+                lastValidSource = identity
+            }
             val old = previous
             if (old != null && old.isValid() && currentValid) {
                 val spanMs = row.elapsedMs - old.elapsedMs
-                if (old.sourceId != null && row.sourceId != null &&
-                    old.sourceId != row.sourceId) {
-                    sourceSwitches++
-                } else if (spanMs in 1L..maxContinuousGapMs) {
-                    // No bridging of missing samples or long gaps.
+                val sameIdentity = old.sourceId?.trim()
+                    ?.takeIf { it.isNotEmpty() } ==
+                    row.sourceId?.trim()?.takeIf { it.isNotEmpty() } &&
+                    old.origin == row.origin
+                if (sameIdentity && spanMs in 1L..maxContinuousGapMs) {
+                    // Neither a sensor nor a provenance change may create
+                    // a fictitious continuous interval of measurements.
                     coverageMs += spanMs
                     weightedIntegral += (requireNotNull(old.value) +
                         requireNotNull(row.value)) * 0.5 * spanMs.toDouble()
@@ -108,6 +120,7 @@ object DukoStatistics {
         val grade = when {
             n < 2 || coverage < QUALIFIED_COVERAGE -> DukoEvidence.INSUFFICIENT
             coverage < HIGH_COVERAGE || reversed > 0 || sourceSwitches > 0 ||
+                missing > 0 || longestGap > maxContinuousGapMs ||
                 unverifiedSources ->
                 DukoEvidence.QUALIFIED
             else -> DukoEvidence.SUPPORTED
