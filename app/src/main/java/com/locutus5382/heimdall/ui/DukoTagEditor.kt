@@ -1,0 +1,200 @@
+package com.locutus5382.heimdall.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import com.locutus5382.heimdall.engine.duko.DukoSessionContext
+import com.locutus5382.heimdall.engine.duko.MeasurementOrigin
+import com.locutus5382.heimdall.recording.DukoSessionContextStore
+import kotlinx.coroutines.launch
+
+private val DukoIce = Color(0xFFEAF1FF)
+private val DukoMuted = Color(0xFF94A7C4)
+private val DukoGold = Color(0xFFF0BD62)
+
+/**
+ * A manual test-profile editor, not a device-control screen. When sessionId is
+ * absent, save a default for the NEXT recording. When present, edit only that
+ * session's metadata. Neither path writes to sysfs or reconfigures a fan.
+ */
+@Composable
+internal fun DukoTagEditor(sessionId: Long? = null) {
+    val app = LocalContext.current.applicationContext
+    val store = remember(app) { DukoSessionContextStore(app) }
+    val scope = rememberCoroutineScope()
+    var tags by remember(sessionId) { mutableStateOf(store.readDraft()) }
+    var message by remember(sessionId) { mutableStateOf<String?>(null) }
+    var loading by remember(sessionId) { mutableStateOf(sessionId != null) }
+    LaunchedEffect(sessionId) {
+        if (sessionId != null) {
+            loading = true
+            try { tags = store.get(sessionId) }
+            catch (e: Exception) {
+                message = "Could not read session tags: ${e.javaClass.simpleName}"
+            } finally { loading = false }
+        }
+    }
+
+    fun declared(p: DukoSessionContext) {
+        tags = p.copy(origin = MeasurementOrigin.USER_DECLARED)
+        message = null
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth()
+            .background(Color(0xFF121E32), RoundedCornerShape(18.dp))
+            .border(1.dp, Color(0xFF26364F), RoundedCornerShape(18.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        Text(
+            if (sessionId == null) "DUKO · NEXT TEST PROFILE"
+            else "DUKO · SESSION #$sessionId",
+            color = DukoGold
+        )
+        Text(
+            if (sessionId == null)
+                "Saved settings will be attached to the next recording."
+            else "Edit labels for this session without altering telemetry samples.",
+            color = DukoMuted
+        )
+        if (loading) Text("Loading session conditions…", color = DukoMuted)
+        OutlinedTextField(tags.game, { declared(tags.copy(game = it)) },
+            label = { Text("Game / workload") }, singleLine = true,
+            modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(tags.emulator, { declared(tags.copy(emulator = it)) },
+            label = { Text("Emulator and version") }, singleLine = true,
+            modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(tags.graphicsDriver, {
+            declared(tags.copy(graphicsDriver = it))
+        }, label = { Text("Graphics driver and version") },
+            singleLine = true, modifier = Modifier.fillMaxWidth())
+
+        Text("DEVICE PERFORMANCE MODE", color = DukoMuted)
+        DukoOptions(
+            choices = listOf("Standard", "Performance", "High Performance", "Custom"),
+            selected = tags.performanceMode,
+            onChoose = { declared(tags.copy(performanceMode = it)) }
+        )
+        OutlinedTextField(tags.performanceMode, {
+            declared(tags.copy(performanceMode = it))
+        }, label = { Text("Performance mode (as shown by device)") },
+            singleLine = true, modifier = Modifier.fillMaxWidth())
+
+        Text("FAN PROFILE", color = DukoMuted)
+        DukoOptions(
+            choices = listOf("Quiet", "Smart", "Sport", "Max", "Custom"),
+            selected = tags.fanProfile,
+            onChoose = { declared(tags.copy(fanProfile = it)) }
+        )
+        OutlinedTextField(tags.fanProfile, { declared(tags.copy(fanProfile = it)) },
+            label = { Text("Fan profile (device-specific)") }, singleLine = true,
+            modifier = Modifier.fillMaxWidth())
+
+        Text("CLUSTERTUNE / UNDERCLOCK", color = DukoMuted)
+        DukoOptions(
+            choices = listOf("Unknown", "Off", "Stock", "Small", "Medium", "Large", "Custom"),
+            selected = tags.clusterTuneProfile,
+            onChoose = { choice ->
+                declared(tags.copy(
+                    clusterTuneProfile = choice,
+                    clusterTuneEnabled = when (choice) {
+                        "Unknown" -> null
+                        "Off" -> false
+                        else -> true
+                    },
+                    tuningTool = if (choice != "Unknown" && choice != "Off")
+                        "ClusterTune" else ""
+                ))
+            }
+        )
+        OutlinedTextField(tags.clusterTuneProfile, { value ->
+            declared(tags.copy(clusterTuneProfile = value,
+                clusterTuneEnabled = when(value.trim()) {
+                    "Unknown", "" -> null
+                    "Off" -> false
+                    else -> true
+                }))
+        }, label = { Text("Underclock profile or custom name") },
+            singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(tags.tuningTool, {
+            declared(tags.copy(tuningTool = it))
+        }, label = { Text("Tuning tool (e.g. ClusterTune)") },
+            singleLine = true, modifier = Modifier.fillMaxWidth())
+
+        OutlinedTextField(tags.notes, { declared(tags.copy(notes = it)) },
+            label = { Text("Test notes / cold or warm run / settings") },
+            maxLines = 3, modifier = Modifier.fillMaxWidth())
+
+        Text(
+            "These are USER-DECLARED labels. Heimdall records actual CPU policy " +
+                "ceilings separately; those do not prove a ClusterTune preset, " +
+                "fan profile or performance mode is active.",
+            color = DukoMuted
+        )
+        OutlinedButton(
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !loading,
+            onClick = {
+                val saved = tags.sanitized().copy(
+                    origin = MeasurementOrigin.USER_DECLARED)
+                if (sessionId == null) {
+                    store.saveDraft(saved)
+                    message = "Saved as the next recording's test profile."
+                } else {
+                    scope.launch {
+                        try {
+                            store.save(sessionId, saved)
+                            message = "Session #$sessionId test conditions updated."
+                        } catch (e: Exception) {
+                            message = "Save failed: ${e.javaClass.simpleName}"
+                        }
+                    }
+                }
+            }
+        ) { Text("SAVE TEST CONDITIONS", color = DukoGold) }
+        message?.let { Text(it, color = DukoIce) }
+    }
+}
+
+@Composable
+private fun DukoOptions(
+    choices: List<String>,
+    selected: String,
+    onChoose: (String) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        choices.forEach { choice ->
+            FilterChip(
+                selected = selected.equals(choice, ignoreCase = true),
+                onClick = { onChoose(choice) },
+                label = { Text(choice, color = DukoIce) }
+            )
+        }
+    }
+}

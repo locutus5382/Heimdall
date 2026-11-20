@@ -1,0 +1,19 @@
+# Android / IDE
+.gradle/
+**/build/
+local.properties
+.idea/
+*.iml
+*.apk
+*.aab
+captures/
+# macOS source-archive extras
+.DS_Store
+._*
+__MACOSX/
+# Signing and secrets never belong in Git
+*.keystore
+*.jks
+*.p12
+*.pem
+*.key
