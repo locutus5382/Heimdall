@@ -3,6 +3,7 @@ package com.locutus5382.heimdall.recording
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import com.locutus5382.heimdall.engine.MetricStatistics
+import com.locutus5382.heimdall.engine.duko.DukoWindow
 import com.locutus5382.heimdall.engine.SessionStatistics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -120,9 +121,15 @@ class SessionArchive(context: Context) {
             }
     }
 
-    /** D0–D2: pure calculations over recorded monotonic observations. */
-    suspend fun dukoFoundation(sessionId: Long): DukoFoundationReport? =
-        DukoSessionAnalyzer(app).analyze(sessionId)
+    /**
+     * M4a: optional recorded monotonic interval. An out-of-range selection
+     * returns null; requested endpoints are never extrapolated or shifted.
+     */
+    suspend fun dukoFoundation(
+        sessionId: Long,
+        selectedWindow: DukoWindow? = null,
+    ): DukoFoundationReport? =
+        DukoSessionAnalyzer(app).analyze(sessionId, selectedWindow)
 
     /** A user-selected SAF destination; never uploads or overwrites source rows. */
     suspend fun exportCsv(sessionId: Long, destination: OutputStream): Long =
