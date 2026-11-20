@@ -1,8 +1,10 @@
 package com.locutus5382.heimdall.recording
 
 import android.content.Context
+import android.os.BatteryManager
 import com.locutus5382.heimdall.engine.duko.DukoEvidence
 import com.locutus5382.heimdall.engine.duko.DukoBatteryPoint
+import com.locutus5382.heimdall.engine.duko.DukoBatteryStatus
 import com.locutus5382.heimdall.engine.duko.DukoEnergy
 import com.locutus5382.heimdall.engine.duko.DukoEnergyReport
 import com.locutus5382.heimdall.engine.duko.DukoThermal
@@ -89,7 +91,8 @@ internal class DukoSessionAnalyzer(
                 """SELECT elapsed_ms,cpu_load_pct,gpu_load_pct,cpu_clock_mhz,
                           gpu_clock_mhz,battery_temp_c,battery_pct,
                           cpu_temp_c,gpu_temp_c,battery_current_ua,
-                          battery_voltage_mv,free_memory_mib,battery_plugged
+                          battery_voltage_mv,free_memory_mib,battery_plugged,
+                          battery_status
                    FROM samples WHERE session_id=? ORDER BY id""",
                 arrayOf(sessionId.toString())
             ).use { c ->
@@ -103,7 +106,20 @@ internal class DukoSessionAnalyzer(
                         elapsedMs = t,
                         currentMicroAmps = if (c.isNull(9)) null else c.getLong(9),
                         voltageMilliVolts = if (c.isNull(10)) null else c.getInt(10),
-                        plugged = if (c.isNull(12)) null else c.getInt(12) != 0
+                        plugged = if (c.isNull(12)) null else c.getInt(12) != 0,
+                        batteryStatus = if (c.isNull(13)) null else when (
+                            c.getInt(13)
+                        ) {
+                            BatteryManager.BATTERY_STATUS_CHARGING ->
+                                DukoBatteryStatus.CHARGING
+                            BatteryManager.BATTERY_STATUS_DISCHARGING ->
+                                DukoBatteryStatus.DISCHARGING
+                            BatteryManager.BATTERY_STATUS_NOT_CHARGING ->
+                                DukoBatteryStatus.NOT_CHARGING
+                            BatteryManager.BATTERY_STATUS_FULL ->
+                                DukoBatteryStatus.FULL
+                            else -> DukoBatteryStatus.UNKNOWN
+                        }
                     )
                     for (i in selectedMetrics.indices) {
                         val metric = selectedMetrics[i]

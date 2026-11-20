@@ -8,7 +8,9 @@ class DukoEnergyTest {
         ms: Long, current: Long? = -2_000_000,
         voltage: Int? = 4_000, plugged: Boolean? = false,
         source: String = "battery-api",
-    ) = DukoBatteryPoint(ms, current, voltage, plugged, source)
+        status: DukoBatteryStatus? = DukoBatteryStatus.DISCHARGING,
+    ) = DukoBatteryPoint(ms, current, voltage, plugged, source,
+        batteryStatus = status)
 
     @Test fun constantEightWattDischargeProducesCorrectMeasuredEnergy() {
         val data = (0..5).map { point(it * 2_000L) }
@@ -101,4 +103,61 @@ class DukoEnergyTest {
         assertNull(a.measuredDischargeWh)
         assertEquals(DukoEvidence.INSUFFICIENT, a.evidence)
     }
+    @Test fun legacyMissingBatteryStatusCannotReceiveSupportedGrade() {
+        val report = DukoEnergy.analyze(DukoWindow(0, 10_000),
+            (0..5).map { point(it * 2_000L, status = null) })
+        assertEquals(8.0, report.timeWeightedDischargeWatts!!, 1e-9)
+        assertEquals(DukoEvidence.QUALIFIED, report.evidence)
+        assertEquals(6, report.unknownBatteryStatusSamples)
+        assertTrue("BATTERY_STATUS_MISSING_OR_UNKNOWN" in report.warnings)
+    }
+
+    @Test fun explicitlyUnknownAndroidBatteryStatusAlsoQualifiesEvidence() {
+        val report = DukoEnergy.analyze(DukoWindow(0, 10_000),
+            (0..5).map {
+                point(it * 2_000L, status = DukoBatteryStatus.UNKNOWN)
+            })
+        assertEquals(DukoEvidence.QUALIFIED, report.evidence)
+        assertEquals(6, report.unknownBatteryStatusSamples)
+    }
+
+    @Test fun notChargingBypassDischargeIsMeasuredButQualified() {
+        val report = DukoEnergy.analyze(DukoWindow(0, 10_000),
+            (0..5).map {
+                point(it * 2_000L, plugged = true,
+                    status = DukoBatteryStatus.NOT_CHARGING)
+            })
+        assertEquals(8.0, report.timeWeightedDischargeWatts!!, 1e-9)
+        assertEquals(DukoEvidence.QUALIFIED, report.evidence)
+        assertEquals(6, report.ambiguousBatteryStatusSamples)
+        assertTrue("BATTERY_STATUS_NOT_UNAMBIGUOUS_DISCHARGE" in report.warnings)
+        assertTrue("PLUGGED_BATTERY_DISCHARGE_NOT_TOTAL_INPUT" in report.warnings)
+    }
+
+    @Test fun chargingStatusWithNegativeCurrentCannotProduceEnergy() {
+        val report = DukoEnergy.analyze(DukoWindow(0, 10_000),
+            (0..5).map {
+                point(it * 2_000L, current = -2_000_000L,
+                    status = DukoBatteryStatus.CHARGING)
+            })
+        assertNull(report.measuredDischargeWh)
+        assertNull(report.timeWeightedDischargeWatts)
+        assertEquals(6, report.conflictingBatteryStatusSamples)
+        assertEquals(DukoEvidence.INSUFFICIENT, report.evidence)
+        assertTrue("BATTERY_STATUS_CONFLICTS_WITH_CURRENT" in report.warnings)
+    }
+
+    @Test fun isolatedContradictionBreaksIntegrationAndDowngradesGrade() {
+        val report = DukoEnergy.analyze(DukoWindow(0, 10_000),
+            (0..5).map {
+                point(it * 2_000L, status = if (it == 2)
+                    DukoBatteryStatus.CHARGING
+                    else DukoBatteryStatus.DISCHARGING)
+            })
+        assertEquals(6_000L, report.statistics.coveredMs)
+        assertEquals(DukoEvidence.INSUFFICIENT, report.evidence)
+        assertEquals(1, report.conflictingBatteryStatusSamples)
+        assertTrue("BATTERY_STATUS_CONFLICTS_WITH_CURRENT" in report.warnings)
+    }
+
 }
