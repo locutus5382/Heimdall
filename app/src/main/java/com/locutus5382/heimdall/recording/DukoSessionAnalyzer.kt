@@ -6,6 +6,8 @@ import com.locutus5382.heimdall.engine.duko.DukoEvidence
 import com.locutus5382.heimdall.engine.duko.DukoBatteryPoint
 import com.locutus5382.heimdall.engine.duko.DukoBatteryStatus
 import com.locutus5382.heimdall.engine.duko.DukoEnergy
+import com.locutus5382.heimdall.engine.duko.DukoConfidence
+import com.locutus5382.heimdall.engine.duko.DukoConfidenceReport
 import com.locutus5382.heimdall.engine.duko.DukoEnergyReport
 import com.locutus5382.heimdall.engine.duko.DukoThermal
 import com.locutus5382.heimdall.engine.duko.DukoThermalReport
@@ -34,7 +36,8 @@ data class DukoFoundationReport(
     val energy: DukoEnergyReport,
     val thermal: Map<DukoMetric, DukoThermalReport>,
     val capabilitySnapshotAvailable: Boolean,
-    val analysisVersion: Int = 1,
+    val confidence: DukoConfidenceReport,
+    val analysisVersion: Int = 2,
 )
 
 internal class DukoSessionAnalyzer(
@@ -163,21 +166,27 @@ internal class DukoSessionAnalyzer(
                 "COMPLETED" -> DukoSessionOutcome.COMPLETED
                 else -> DukoSessionOutcome.NEEDS_RECOVERY
             }
+            val integrity = DukoSessionIntegrity(outcome, reports)
+            val energy = DukoEnergy.analyze(window, batteryPoints, cadence)
+            val thermal = listOf(
+                DukoMetric.BATTERY_TEMPERATURE,
+                DukoMetric.CPU_TEMPERATURE,
+                DukoMetric.GPU_TEMPERATURE
+            ).associateWith { metric ->
+                DukoThermal.analyze(
+                    metric, window, series.getValue(metric), cadence
+                )
+            }
             DukoFoundationReport(
                 sessionId = sessionId,
                 window = window,
-                integrity = DukoSessionIntegrity(outcome, reports),
-                energy = DukoEnergy.analyze(window, batteryPoints, cadence),
-                thermal = listOf(
-                    DukoMetric.BATTERY_TEMPERATURE,
-                    DukoMetric.CPU_TEMPERATURE,
-                    DukoMetric.GPU_TEMPERATURE
-                ).associateWith { metric ->
-                    DukoThermal.analyze(
-                        metric, window, series.getValue(metric), cadence
-                    )
-                },
-                capabilitySnapshotAvailable = snapshotJson != null
+                integrity = integrity,
+                energy = energy,
+                thermal = thermal,
+                capabilitySnapshotAvailable = snapshotJson != null,
+                // The generic Android device capture is never treated as a
+                // calibrated electrical instrument.
+                confidence = DukoConfidence.assess(integrity, energy, thermal),
             )
         }
 }
