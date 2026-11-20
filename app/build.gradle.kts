@@ -28,6 +28,13 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro")
         }
+        create("releaseQa") {
+            // CI-only installable mirror of the production release R8 rules.
+            // Never publish this build: the key is ephemeral and differs per CI runner.
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+        }
         create("leanDebug") {
             // Installable, R8-optimized QA APK signed by the normal debug key.
             // Never distribute it as a release; GitHub runners rotate keys.
@@ -67,7 +74,8 @@ dependencies {
     // are referenced by AndroidX Test's runtime checks but are otherwise absent.
     androidTestImplementation("com.google.errorprone:error_prone_annotations:2.28.0")
     // AndroidJUnitRunner invokes androidx.tracing.Trace before any test runs.
-    // Match the runtime-constrained AndroidX Activity 1.9.1 version; test R8\n    // keeps the instrumentation implementation via test-proguard-rules.pro.
+    // Match the runtime-constrained AndroidX Activity 1.9.1 version; test R8
+    // keeps the instrumentation implementation via test-proguard-rules.pro.
     androidTestImplementation("androidx.tracing:tracing:1.0.0")
     // The optimized app strips unused Kotlin runtime classes, while the
     // separately minified AndroidX instrumentation runner still needs LazyKt.

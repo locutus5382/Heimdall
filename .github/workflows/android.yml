@@ -33,14 +33,8 @@ jobs:
           gradle-version: '8.11.1'
       - name: Install Android SDK 36
         run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
-      - name: Verify no external networking permission
-        run: |
-          if grep -REi '<uses-permission[^>]+android.permission.INTERNET' app/src/main; then
-            echo "::error::Heimdall must remain offline-only."
-            exit 1
-          fi
       - name: Build and run all pure engine tests
-        run: gradle :engine:test :app:assembleDebug :app:assembleLeanDebug --no-daemon --stacktrace
+        run: gradle :engine:test :app:assembleDebug :app:assembleLeanDebug :app:assembleRelease :app:bundleRelease :app:assembleReleaseQa --no-daemon --stacktrace
       - name: Verify R8 QA APK preserves test-linked Kotlin/coroutines ABI
         run: |
           python3 scripts/check_lean_test_abi.py \
@@ -51,6 +45,14 @@ jobs:
             kotlinx.coroutines.JobKt \
             kotlinx.coroutines.BuildersKt \
             kotlinx.coroutines.CoroutineScopeKt
+      - name: Validate permissions in merged APK manifests (including libraries)
+        run: |
+          python3 scripts/check_apk_permissions.py \
+            "$ANDROID_HOME/build-tools/36.0.0/aapt" \
+            app/build/outputs/apk/debug/app-debug.apk \
+            app/build/outputs/apk/leanDebug/app-leanDebug.apk \
+            app/build/outputs/apk/release/app-release-unsigned.apk \
+            app/build/outputs/apk/releaseQa/app-releaseQa.apk
       - name: Verify standalone Heimdall application ID
         run: |
           APK=app/build/outputs/apk/debug/app-debug.apk
@@ -63,19 +65,33 @@ jobs:
           name: HEIMDALL-v0.7.0-duko-debug
           if-no-files-found: error
           path: app/build/outputs/apk/debug/app-debug.apk
-      - name: Measure baseline and R8-optimized APK sizes
+      - name: Measure debug, optimized QA and production-equivalent outputs
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          baseline = Path('app/build/outputs/apk/debug/app-debug.apk')
-          lean = Path('app/build/outputs/apk/leanDebug/app-leanDebug.apk')
-          assert baseline.exists() and lean.exists(), 'Missing optimized APK'
-          b, o = baseline.stat().st_size, lean.stat().st_size
-          saving = 100.0 * (b - o) / b
-          report = f"unshrunk_debug_bytes={b}\\nlean_debug_bytes={o}\\nreduction_percent={saving:.1f}\\n"
-          print(report)
-          Path('app/build/outputs/apk/heimdall-size-report.txt').write_text(report)
-          assert o < b, 'R8 variant must actually be smaller than debug'
+          paths = {
+              "debug": Path("app/build/outputs/apk/debug/app-debug.apk"),
+              "lean_qa": Path("app/build/outputs/apk/leanDebug/app-leanDebug.apk"),
+              "release_unsigned": Path("app/build/outputs/apk/release/app-release-unsigned.apk"),
+              "release_qa_signed": Path("app/build/outputs/apk/releaseQa/app-releaseQa.apk"),
+              "release_aab_container": Path("app/build/outputs/bundle/release/app-release.aab"),
+          }
+          for label, path in paths.items():
+              assert path.is_file(), f"Missing {label}: {path}"
+          sizes = {label: path.stat().st_size for label, path in paths.items()}
+          reduction = 100.0 * (1 - sizes["lean_qa"] / sizes["debug"])
+          qa_delta = 100.0 * (sizes["lean_qa"] / sizes["release_qa_signed"] - 1)
+          lines = [f"{label}_bytes={size}" for label, size in sizes.items()]
+          lines += [
+              f"lean_vs_debug_reduction_percent={reduction:.1f}",
+              f"lean_vs_release_qa_delta_percent={qa_delta:+.1f}",
+              "note=the AAB container size is not an estimated Play-delivered download",
+              "note=release_qa is debug-signed using production R8 rules, not a production release",
+          ]
+          report = "\n".join(lines) + "\n"
+          print(report, end="")
+          Path("app/build/outputs/apk/heimdall-size-report.txt").write_text(report)
+          assert sizes["lean_qa"] < sizes["debug"], "Lean QA must remain smaller than unshrunk debug"
           PY
       - name: Upload optimized installable QA APK
         uses: actions/upload-artifact@v4
@@ -83,6 +99,17 @@ jobs:
           name: HEIMDALL-v0.7.0-duko-lean-debug
           if-no-files-found: error
           path: app/build/outputs/apk/leanDebug/app-leanDebug.apk
+      - name: Preserve production and production-equivalent R8 evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: heimdall-release-ci-evidence
+          if-no-files-found: error
+          path: |
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/apk/releaseQa/*.apk
+            app/build/outputs/bundle/release/*.aab
+            app/build/outputs/mapping/release/mapping.txt
+            app/build/outputs/mapping/releaseQa/mapping.txt
       - name: Upload APK size comparison
         uses: actions/upload-artifact@v4
         with:
@@ -139,6 +166,14 @@ jobs:
             # R8 errors in Service/SQLite/reflection must fail the quality gate.
             gradle :app:connectedAndroidTest -PheimdallAndroidTestBuildType=leanDebug --no-daemon --stacktrace
             adb install -r app/build/outputs/apk/leanDebug/app-leanDebug.apk
+            adb shell am force-stop com.locutus5382.heimdall
+            adb shell am start -n com.locutus5382.heimdall/.ui.MainActivity
+            sleep 3
+            adb shell pidof com.locutus5382.heimdall
+            # Test actual release R8 rules, not the test-compatible leanDebug rules.
+            # Debug signing is temporary per runner: QA only, never distribute.
+            gradle :app:assembleReleaseQa --no-daemon --stacktrace
+            adb install -r app/build/outputs/apk/releaseQa/app-releaseQa.apk
             adb shell am force-stop com.locutus5382.heimdall
             adb shell am start -n com.locutus5382.heimdall/.ui.MainActivity
             sleep 3
