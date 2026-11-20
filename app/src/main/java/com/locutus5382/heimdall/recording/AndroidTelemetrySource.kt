@@ -26,20 +26,24 @@ internal class AndroidTelemetrySource(
     private val app = context.applicationContext
     // Service.onCreate constructs this object on Main. Sysfs discovery happens
     // only on the first read(), inside withContext(Dispatchers.IO), never here.
-    private val catalog: SensorCatalog by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
-        discover(app)
-    }
+    // Cached volatile lookup; refresh at each new session START is visible
+    // to subsequent samples without repeating hardware discovery each tick.
+    private val catalog: SensorCatalog get() = discover(app)
     private val manager = app.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
     private val power = app.getSystemService(Context.POWER_SERVICE) as PowerManager
     private val activity = app.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
     private val whitespace = Regex("\\s+")
     private val procStat = File("/proc/stat")
     private var previousCpu: Pair<Long, Long>? = null
+    private val batteryFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+    private val memoryInfo = ActivityManager.MemoryInfo()
+    private val thermalGate = ThermalHeadroomGate()
+    private var procStatBlocked = false
 
     override suspend fun read(): DeviceSample = withContext(Dispatchers.IO) {
         // Each source is isolated: one SELinux denial must not abort the tick.
         val battery = runCatching {
-            app.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            app.registerReceiver(null, batteryFilter)
         }.getOrNull()
         val level = battery?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
         val scale = battery?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
@@ -50,35 +54,42 @@ internal class AndroidTelemetrySource(
         val batteryTemp = if (rawTemp == Int.MIN_VALUE) null else
             (rawTemp / 10.0).takeIf { it in -30.0..100.0 }
 
-        val voltage = battery?.getIntExtra(
-            BatteryManager.EXTRA_VOLTAGE, -1)?.takeIf { it in 2500..5000 }
+        val rawVoltage = battery?.getIntExtra(
+            BatteryManager.EXTRA_VOLTAGE, -1)?.takeIf { it >= 0 }
+        val voltage = BatteryEvidence.acceptedVoltageMv(rawVoltage)
         val plugged = battery?.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1)
             ?.takeIf { it >= 0 }?.let { it != 0 }
         val status = battery?.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
         val rawCurrent = runCatching {
             manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
-        }.getOrNull()?.toLong()?.takeIf {
-            it != Int.MIN_VALUE.toLong() && kotlin.math.abs(it) in 1000L..15_000_000L
-        }
-        // Android defines positive current for charging and negative for
-        // discharging. Validate against observed battery status before storing.
-        val current = rawCurrent?.takeIf {
-            (plugged == false &&
-                status == BatteryManager.BATTERY_STATUS_DISCHARGING && it < 0L) ||
-            (plugged == true &&
-                status == BatteryManager.BATTERY_STATUS_CHARGING && it > 0L)
-        }
+                .toLong()
+        }.getOrNull()?.takeUnless { it == Int.MIN_VALUE.toLong() }
+        // Preserve raw value even during bypass/plugged discharge or unexpected
+        // OEM polarity; never invert sign or claim it is total device input.
+        val current = BatteryEvidence.interpretedCurrentUa(rawCurrent, status)
+        val chargeCounter = runCatching {
+            manager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)
+                .toLong()
+        }.getOrNull()?.takeUnless { it == Int.MIN_VALUE.toLong() }
+        val energyCounter = runCatching {
+            manager.getLongProperty(BatteryManager.BATTERY_PROPERTY_ENERGY_COUNTER)
+        }.getOrNull()?.takeUnless { it == Long.MIN_VALUE }
 
         val mem = runCatching {
-            ActivityManager.MemoryInfo().also { activity.getMemoryInfo(it) }
-                .availMem / (1024L * 1024L)
+            activity.getMemoryInfo(memoryInfo)
+            memoryInfo.availMem / (1024L * 1024L)
         }.getOrNull()
-        val policyClocks = catalog.clocksMHz()
-        val policyLimits = catalog.limitsMHz()
-        val hardwareMax = catalog.siliconLimitsMHz()
+        val activeCatalog = catalog
+        val policyClocks = activeCatalog.clocksMHz()
+        val policyLimits = activeCatalog.limitsMHz()
+        val hardwareMax = activeCatalog.siliconLimitsMHz()
         val thermal = runCatching { power.currentThermalStatus }.getOrNull()
-        val headroom = runCatching { power.getThermalHeadroom(0).toDouble() }
-            .getOrNull()?.takeIf { it.isFinite() && it in 0.0..2.0 }
+        val now = SystemClock.elapsedRealtime()
+        val headroomQueryAt = if (thermalGate.shouldQuery(now)) now else null
+        val headroom = headroomQueryAt?.let {
+            runCatching { power.getThermalHeadroom(0).toDouble() }
+                .getOrNull()?.takeIf { v -> v.isFinite() && v in 0.0..2.0 }
+        }
         DeviceSample(
             observedAtMs = System.currentTimeMillis(),
             cpuLoadPercent = cpuPercentOrNull(),
@@ -86,23 +97,32 @@ internal class AndroidTelemetrySource(
             batteryTemperatureC = batteryTemp,
             availableMemoryMiB = mem,
             cpuClockMHz = policyClocks.values.maxOrNull(),
-            gpuClockMHz = catalog.gpuClockMHz(),
-            observedElapsedMs = SystemClock.elapsedRealtime(),
+            gpuClockMHz = activeCatalog.gpuClockMHz(),
+            observedElapsedMs = now,
             thermalStatus = thermal,
             thermalHeadroom = headroom,
             batteryCurrentUa = current,
             batteryVoltageMv = voltage,
             batteryPlugged = plugged,
-            gpuLoadPercent = catalog.gpuUtilization(),
-            cpuTemperatureC = catalog.cpuTemperatureC(),
-            gpuTemperatureC = catalog.gpuTemperatureC(),
+            gpuLoadPercent = activeCatalog.gpuUtilization(),
+            cpuTemperatureC = activeCatalog.cpuTemperatureC(),
+            gpuTemperatureC = activeCatalog.gpuTemperatureC(),
             cpuPolicyClocksMHz = policyClocks,
             cpuPolicyLimitsMHz = policyLimits,
             cpuPolicyHardwareMaxMHz = hardwareMax,
+            batteryRawCurrentUa = rawCurrent,
+            batteryRawVoltageMv = rawVoltage,
+            batteryStatus = status?.takeIf { it in 1..5 },
+            batteryChargeCounterUah = chargeCounter,
+            batteryEnergyCounterNwh = energyCounter,
+            thermalHeadroomObservedElapsedMs =
+                headroomQueryAt?.takeIf { headroom != null },
         )
     }
 
-    private fun cpuPercentOrNull(): Double? = runCatching {
+    private fun cpuPercentOrNull(): Double? {
+        if (procStatBlocked) return null
+        return runCatching {
         // /proc/stat is restricted on many Android builds. Never substitute
         // the clock/max-clock ratio and label it CPU utilization.
         val line = procStat.useLines { it.first() }
@@ -117,5 +137,10 @@ internal class AndroidTelemetrySource(
         else (100.0 * (1.0 -
             (idle - previous.second).toDouble() /
             (total - previous.first).toDouble())).coerceIn(0.0, 100.0)
+    }.onFailure { cause ->
+        if (cause is SecurityException ||
+            cause is java.io.FileNotFoundException ||
+            cause is java.nio.file.AccessDeniedException) procStatBlocked = true
     }.getOrNull()
+    }
 }

@@ -25,6 +25,14 @@ data class DeviceSample(
     val cpuPolicyClocksMHz: Map<String, Long> = emptyMap(),
     val cpuPolicyLimitsMHz: Map<String, Long> = emptyMap(),
     val cpuPolicyHardwareMaxMHz: Map<String, Long> = emptyMap(),
+    // v5: preserve raw electrical evidence separately from values accepted by
+    // legacy energy calculations. Unknown readings remain null, never zero.
+    val batteryRawCurrentUa: Long? = null,
+    val batteryRawVoltageMv: Int? = null,
+    val batteryStatus: Int? = null,
+    val batteryChargeCounterUah: Long? = null,
+    val batteryEnergyCounterNwh: Long? = null,
+    val thermalHeadroomObservedElapsedMs: Long? = null,
 )
 
 sealed interface RecorderStatus {
