@@ -7,6 +7,10 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -134,21 +138,31 @@ class NativeRecorderEngineTest {
         } finally { scope.cancel() }
     }
 
-    @Test fun sensorFailureStopsSamplerWithoutClearingSession() = runBlocking {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        try {
-            val store = FakeStore()
-            val e = NativeRecorderEngine(FakeSource().apply { fail = true },
-                store, scope)
-            assertTrue(e.start())
-            await { e.status.value is RecorderStatus.NeedsAttention }
-            assertEquals("SAMPLE_IO_FAILED",
-                (e.status.value as RecorderStatus.NeedsAttention).code)
-            assertEquals(7L, store.active)
-            assertEquals(0, store.finishes)
-            assertTrue(e.stop())
-            assertNull(store.active)
-        } finally { scope.cancel() }
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun sensorFailureStopsSamplerWithoutClearingSession() = runTest {
+        // A permanently failing source must cross the *elapsed-time* outage
+        // budget, not a hardcoded number of 250 ms retries. Virtual time keeps
+        // this test fast, repeatable and independent of CI runner load.
+        val store = FakeStore()
+        val e = NativeRecorderEngine(
+            FakeSource().apply { fail = true },
+            store, backgroundScope,
+            monotonicNowMs = { testScheduler.currentTime }
+        )
+        assertTrue(e.start())
+        runCurrent()
+        advanceTimeBy(25_000L)
+        runCurrent()
+        assertTrue("A 25-second outage must remain recoverable",
+            e.status.value is RecorderStatus.Recording)
+        advanceTimeBy(10_000L)
+        runCurrent()
+        assertEquals("SAMPLE_IO_FAILED",
+            (e.status.value as RecorderStatus.NeedsAttention).code)
+        assertEquals(7L, store.active)
+        assertEquals(0, store.finishes)
+        assertTrue(e.stop())
+        assertNull(store.active)
     }
 
     @Test fun intermittentSensorFailuresRecoverWithoutReplacingSession() = runBlocking {
@@ -253,6 +267,70 @@ class NativeRecorderEngineTest {
             assertNull(store.active)
             assertEquals(1, store.finishes)
         } finally { scope.cancel() }
+    }
+
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun tenSecondSensorOutageRecoversWithoutReplacingSession() = runTest {
+        val store = FakeStore()
+        val source = object : DeviceSampleSource {
+            override suspend fun read(): DeviceSample {
+                if (testScheduler.currentTime < 10_000L) {
+                    error("TEMPORARY_SENSOR_UNAVAILABLE")
+                }
+                return DeviceSample(1L, 17.0, 60, 31.0, 2200L, 1600L, null)
+            }
+        }
+        val engine = NativeRecorderEngine(
+            source, store, backgroundScope,
+            intervalMs = 1_000L,
+            maximumFailureDurationMs = 30_000L,
+            monotonicNowMs = { testScheduler.currentTime }
+        )
+        assertTrue(engine.start())
+        runCurrent()
+        advanceTimeBy(13_000L)
+        runCurrent()
+        val recording = engine.status.value as RecorderStatus.Recording
+        assertEquals(7L, recording.sessionId)
+        assertTrue("Recorder must resume appending after a 10 s outage", store.writes > 0L)
+        assertEquals(7L, store.active)
+        assertEquals(0, store.finishes)
+        assertTrue(engine.stop())
+        assertEquals(1, store.finishes)
+        assertNull(store.active)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun continuousSixtySecondSensorOutageDoesNotSilentlyFinalize() = runTest {
+        val store = FakeStore()
+        val source = object : DeviceSampleSource {
+            override suspend fun read(): DeviceSample =
+                error("PERSISTENT_SENSOR_UNAVAILABLE")
+        }
+        val engine = NativeRecorderEngine(
+            source, store, backgroundScope,
+            intervalMs = 1_000L,
+            maximumFailureDurationMs = 30_000L,
+            monotonicNowMs = { testScheduler.currentTime }
+        )
+        assertTrue(engine.start())
+        runCurrent()
+        advanceTimeBy(25_000L)
+        runCurrent()
+        assertTrue("25 s outage must still be recoverable",
+            engine.status.value is RecorderStatus.Recording)
+        advanceTimeBy(35_000L)
+        runCurrent()
+        val state = engine.status.value as RecorderStatus.NeedsAttention
+        assertEquals(7L, state.sessionId)
+        assertEquals("SAMPLE_IO_FAILED", state.code)
+        assertEquals(7L, store.active)
+        assertEquals(0, store.finishes)
+        assertEquals(0L, store.writes)
+        assertTrue("User STOP must still finalize original evidence row", engine.stop())
+        assertNull(store.active)
+        assertEquals(1, store.finishes)
     }
 
 }
