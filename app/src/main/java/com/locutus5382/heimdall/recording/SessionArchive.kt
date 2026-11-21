@@ -4,6 +4,10 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import com.locutus5382.heimdall.engine.MetricStatistics
 import com.locutus5382.heimdall.engine.duko.DukoWindow
+import com.locutus5382.heimdall.engine.duko.DukoComparison
+import com.locutus5382.heimdall.engine.duko.DukoComparisonInput
+import com.locutus5382.heimdall.engine.duko.DukoComparisonReport
+import com.locutus5382.heimdall.engine.duko.DukoSessionOutcome
 import com.locutus5382.heimdall.engine.SessionStatistics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -130,6 +134,42 @@ class SessionArchive(context: Context) {
         selectedWindow: DukoWindow? = null,
     ): DukoFoundationReport? =
         DukoSessionAnalyzer(app).analyze(sessionId, selectedWindow)
+
+    /**
+     * M5b: compare two distinct, completed, independently analyzed sessions.
+     * Reads are bounded by each selected window and run off the main thread.
+     * Context tags remain user declarations, never verified hardware state.
+     */
+    suspend fun dukoCompare(
+        sessionA: Long,
+        sessionB: Long,
+        windowA: DukoWindow? = null,
+        windowB: DukoWindow? = null,
+    ): DukoComparisonReport? = withContext(Dispatchers.IO) {
+        require(sessionA > 0L && sessionB > 0L && sessionA != sessionB) {
+            "TWO_DISTINCT_SESSIONS_REQUIRED"
+        }
+        val analyzer = DukoSessionAnalyzer(app)
+        val a = analyzer.analyze(sessionA, windowA) ?: return@withContext null
+        val b = analyzer.analyze(sessionB, windowB) ?: return@withContext null
+        val contexts = DukoSessionContextStore(app)
+        DukoComparison.compare(
+            DukoComparisonInput(
+                sessionId = sessionA,
+                window = a.window,
+                outcome = a.integrity.outcome,
+                context = contexts.get(sessionA),
+                metrics = a.integrity.metrics,
+            ),
+            DukoComparisonInput(
+                sessionId = sessionB,
+                window = b.window,
+                outcome = b.integrity.outcome,
+                context = contexts.get(sessionB),
+                metrics = b.integrity.metrics,
+            ),
+        )
+    }
 
     /** A user-selected SAF destination; never uploads or overwrites source rows. */
     suspend fun exportCsv(sessionId: Long, destination: OutputStream): Long =

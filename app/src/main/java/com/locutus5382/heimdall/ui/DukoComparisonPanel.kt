@@ -1,0 +1,123 @@
+package com.locutus5382.heimdall.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import com.locutus5382.heimdall.engine.duko.DukoComparisonQuality
+import com.locutus5382.heimdall.engine.duko.DukoComparisonReport
+import com.locutus5382.heimdall.engine.duko.DukoMetric
+import com.locutus5382.heimdall.recording.SavedSession
+import com.locutus5382.heimdall.recording.SessionArchive
+import java.util.Locale
+
+private val AbInk = Color(0xFFEAF1FF)
+private val AbSubtle = Color(0xFF9EADC2)
+private val AbAmber = Color(0xFFF2A900)
+private val AbSlate = Color(0xFF121E32)
+private fun abNumber(n: Double?) =
+    n?.let { String.format(Locale.US, "%.1f", it) } ?: "—"
+
+/** Read-only A/B selection. Never starts, stops or modifies recordings. */
+@Composable
+internal fun DukoComparisonPanel(sessions: List<SavedSession>) {
+    val context = LocalContext.current
+    val archive = remember(context) { SessionArchive(context) }
+    var a by remember { mutableStateOf<Long?>(null) }
+    var b by remember { mutableStateOf<Long?>(null) }
+    var request by remember { mutableStateOf(0) }
+    var report by remember { mutableStateOf<DukoComparisonReport?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(a, b, request) {
+        report = null
+        error = null
+        val left = a
+        val right = b
+        if (request == 0 || left == null || right == null || left == right) {
+            busy = false
+            return@LaunchedEffect
+        }
+        busy = true
+        try {
+            report = archive.dukoCompare(left, right)
+            if (report == null) error = "Monotonic evidence unavailable."
+        } catch (e: Exception) {
+            error = "Comparison unavailable: " + e.javaClass.simpleName
+        } finally {
+            busy = false
+        }
+    }
+    Column(
+        modifier = Modifier.fillMaxWidth()
+            .background(AbSlate, RoundedCornerShape(17.dp))
+            .padding(13.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("DUKO A/B COMPARISON", color = AbAmber)
+        Text("Select two distinct completed sessions. User tags do not verify hardware settings.", color = AbSubtle)
+        sessions.forEach { session ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("#${session.id}", color = AbInk, modifier = Modifier.weight(1f))
+                OutlinedButton(onClick = { a = session.id; request = 0 }) {
+                    Text(if (a == session.id) "A ✓" else "SET A")
+                }
+                OutlinedButton(onClick = { b = session.id; request = 0 }) {
+                    Text(if (b == session.id) "B ✓" else "SET B")
+                }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                enabled = a != null && b != null && a != b && !busy,
+                onClick = { request++ }
+            ) { Text("COMPARE") }
+            OutlinedButton(onClick = {
+                a = null; b = null; request = 0; report = null; error = null
+            }) { Text("CLEAR") }
+        }
+        if (busy) Text("Analyzing recorded evidence…", color = AbSubtle)
+        if (error != null) Text(error.orEmpty(), color = AbAmber)
+        report?.let { result ->
+            Text("A #${result.sessionA} → B #${result.sessionB} · ${result.quality.name}", color = AbInk)
+            result.contextWarnings.forEach {
+                Text(it.replace('_', ' '), color = AbSubtle)
+            }
+            listOf(
+                DukoMetric.CPU_LOAD, DukoMetric.GPU_LOAD,
+                DukoMetric.CPU_CLOCK, DukoMetric.GPU_CLOCK,
+                DukoMetric.BATTERY_TEMPERATURE, DukoMetric.CPU_TEMPERATURE,
+                DukoMetric.GPU_TEMPERATURE, DukoMetric.AVAILABLE_RAM
+            ).forEach { metric ->
+                result.metrics[metric]?.let { item ->
+                    val delta = if (item.quality == DukoComparisonQuality.NOT_COMPARABLE)
+                        "not comparable"
+                    else "Δ ${abNumber(item.delta)} ${metric.unit.symbol} · ${abNumber(item.percentChange)}%"
+                    Text(
+                        "${metric.name.replace('_', ' ')}: A ${abNumber(item.aMean)} / B ${abNumber(item.bMean)} ${metric.unit.symbol} · $delta · ${item.quality.name}",
+                        color = AbInk
+                    )
+                    if (item.warnings.isNotEmpty())
+                        Text(item.warnings.joinToString(", ").replace('_', ' '), color = AbSubtle)
+                }
+            }
+            Text("Measured telemetry is not FPS, a causal performance claim or a game benchmark.", color = AbSubtle)
+        }
+    }
+}
