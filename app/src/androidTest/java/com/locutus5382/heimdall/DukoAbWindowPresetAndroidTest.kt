@@ -22,7 +22,7 @@ class DukoAbWindowPresetAndroidTest {
     @Test fun shortIntervalsAreNeverFabricatedOrExpanded() {
         val tiny = DukoWindow(500L, 501L)
         assertEquals(tiny, AbWindowPreset.FULL.select(tiny))
-        assertEquals(tiny, AbWindowPreset.MIDDLE_80.select(tiny))
+        assertNull(AbWindowPreset.MIDDLE_80.select(tiny))
         assertNull(AbWindowPreset.LAST_50.select(tiny))
     }
 
