@@ -151,7 +151,12 @@ internal class HudOverlayController(private val app: Context) :
                 }
             }
         } catch (e: Exception) {
+            // addView may have succeeded before a later setup step failed.
+            // Roll back the actual attached window before clearing ownership.
             lastFailure = SystemClock.elapsedRealtime()
+            runCatching {
+                if (canvas.isAttachedToWindow) wm.removeViewImmediate(canvas)
+            }.onFailure { Log.w("HeimdallHUD", "Canvas rollback failed", it) }
             view = null
             params = null
             Log.w("HeimdallHUD", "Canvas window rejected; recording continues", e)
@@ -279,7 +284,14 @@ internal class HudOverlayController(private val app: Context) :
         val v = view ?: return
         val p = params ?: return
         runCatching { wm.updateViewLayout(v, p) }
-            .onFailure { Log.w("HeimdallHUD", "Window update failed", it) }
+            .onFailure {
+                // A detached/invalid window must not remain our cached owner:
+                // otherwise every subsequent render tries to update a dead HUD.
+                // Throttle recreation to avoid an overlay-crash loop.
+                lastFailure = SystemClock.elapsedRealtime()
+                Log.w("HeimdallHUD", "Window update failed; releasing HUD", it)
+                hideWindow()
+            }
     }
 
     private fun snap() {
