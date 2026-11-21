@@ -31,6 +31,10 @@ import kotlin.math.min
  * 48dp touch target only while the main HUD is explicitly click-through;
  * it is NOT a duplicate HUD or recorder.
  */
+/** Unlock is never allowed to outlive its parent Canvas window. */
+internal fun shouldAttachHudUnlock(canvasOwned: Boolean, locked: Boolean): Boolean =
+    canvasOwned && locked
+
 internal class HudOverlayController(private val app: Context) :
     SharedPreferences.OnSharedPreferenceChangeListener {
 
@@ -350,7 +354,8 @@ internal class HudOverlayController(private val app: Context) :
             // Never create a standalone unlock overlay after that failure.
             if (view !== v) return
         }
-        if (config.locked && view === v) showUnlock() else removeUnlock()
+        if (shouldAttachHudUnlock(view === v && params != null, config.locked))
+            showUnlock() else removeUnlock()
         v.contentDescription = if (config.locked)
             "Heimdall HUD locked. Use separate UNLOCK control."
         else "Heimdall HUD. Tap MODE to cycle layouts, LOCK to pass through touches, STOP to save."
