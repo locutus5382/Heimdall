@@ -57,4 +57,16 @@ class ClockResidencyTest {
         for (i in 0..1000) a.accept(s(i * 2000L, 1200))
         assertEquals(2000000L, a.result().coveredMs)
     }
+    @Test fun nullableClockDoesNotCreateTransitionOrBridgeGap() {
+        val a = ClockResidencyAccumulator(w, listOf(1000, 2000))
+        listOf(s(0, 900), s(2000, null), s(4000, 1900),
+            s(6000, 900)).forEach(a::accept)
+        val r = a.result()
+        assertEquals(2000L, r.coveredMs)
+        assertEquals(4000L, r.unknownMs)
+        assertEquals(1, r.transitions)
+        assertEquals(1000L, r.largestDropMHz)
+        assertNull(r.largestRiseMHz)
+    }
+
 }
