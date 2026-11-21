@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -48,9 +49,10 @@ private fun abNumber(n: Double?) =
  * A one-millisecond or empty result is rejected rather than expanded.
  */
 internal enum class AbWindowPreset(val label: String) {
-    FULL("Full recording"), MIDDLE_80("Middle 80%"), LAST_50("Last 50%");
+    FULL("Full recording"), MIDDLE_80("Middle 80%"), LAST_50("Last 50%"), CUSTOM("Custom seconds");
 
     fun select(bounds: DukoWindow): DukoWindow? {
+        if (this == CUSTOM) return null
         if (this == FULL) return bounds
         val duration = bounds.durationMs
         if (duration < 2L) return null
@@ -58,16 +60,33 @@ internal enum class AbWindowPreset(val label: String) {
             FULL -> 0L
             MIDDLE_80 -> duration / 10L
             LAST_50 -> duration / 2L
+            CUSTOM -> return null
         }
         val endOffset = when (this) {
             FULL -> duration
             MIDDLE_80 -> duration - duration / 10L
             LAST_50 -> duration
+            CUSTOM -> return null
         }
         if (endOffset <= startOffset) return null
         return DukoWindow(bounds.startMs + startOffset,
             bounds.startMs + endOffset)
     }
+}
+
+/**
+ * User-entered offsets are seconds relative to this session's first monotonic
+ * sample. Reject invalid, overflowed, reversed and out-of-bounds intervals.
+ * Never clamp silently: the selected evidence window must match user intent.
+ */
+internal fun customAbWindow(bounds: DukoWindow, startSeconds: String, endSeconds: String): DukoWindow? {
+    val start = startSeconds.trim().toLongOrNull() ?: return null
+    val end = endSeconds.trim().toLongOrNull() ?: return null
+    if (start < 0L || end <= start || end > Long.MAX_VALUE / 1000L) return null
+    val startMs = start * 1000L
+    val endMs = end * 1000L
+    if (endMs > bounds.durationMs) return null
+    return DukoWindow(bounds.startMs + startMs, bounds.startMs + endMs)
 }
 
 /** Read-only A/B selection. Never starts, stops or modifies recordings. */
@@ -80,6 +99,10 @@ internal fun DukoComparisonPanel(sessions: List<SavedSession>) {
     var request by remember { mutableStateOf(0) }
     var presetA by remember { mutableStateOf(AbWindowPreset.FULL) }
     var presetB by remember { mutableStateOf(AbWindowPreset.FULL) }
+    var startA by remember { mutableStateOf("0") }
+    var endA by remember { mutableStateOf("") }
+    var startB by remember { mutableStateOf("0") }
+    var endB by remember { mutableStateOf("") }
     var selectedWindows by remember { mutableStateOf<Pair<DukoWindow, DukoWindow>?>(null) }
     var report by remember { mutableStateOf<DukoComparisonReport?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -155,10 +178,10 @@ internal fun DukoComparisonPanel(sessions: List<SavedSession>) {
         try {
             val boundsA = archive.dukoMonotonicBounds(left)
             val boundsB = archive.dukoMonotonicBounds(right)
-            val windowA = boundsA?.let(presetA::select)
-            val windowB = boundsB?.let(presetB::select)
+            val windowA = boundsA?.let { if (presetA == AbWindowPreset.CUSTOM) customAbWindow(it, startA, endA) else presetA.select(it) }
+            val windowB = boundsB?.let { if (presetB == AbWindowPreset.CUSTOM) customAbWindow(it, startB, endB) else presetB.select(it) }
             if (windowA == null || windowB == null) {
-                error = "Recorded monotonic range unavailable for the selected window."
+                error = "Invalid window: enter start/end seconds within each recorded session (end must exceed start)."
             } else {
                 report = archive.dukoCompare(left, right, windowA, windowB)
                 if (report == null) error = "Selected windows have insufficient monotonic evidence."
@@ -204,6 +227,24 @@ internal fun DukoComparisonPanel(sessions: List<SavedSession>) {
                 request = 0
             }) { Text("B: " + presetB.label) }
         }
+        if (presetA == AbWindowPreset.CUSTOM) {
+            Text("A: seconds from first recorded sample", color = AbSubtle)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(startA, { startA = it; request = 0 },
+                    label = { Text("Start s") }, singleLine = true, modifier = Modifier.weight(1f))
+                OutlinedTextField(endA, { endA = it; request = 0 },
+                    label = { Text("End s") }, singleLine = true, modifier = Modifier.weight(1f))
+            }
+        }
+        if (presetB == AbWindowPreset.CUSTOM) {
+            Text("B: seconds from first recorded sample", color = AbSubtle)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(startB, { startB = it; request = 0 },
+                    label = { Text("Start s") }, singleLine = true, modifier = Modifier.weight(1f))
+                OutlinedTextField(endB, { endB = it; request = 0 },
+                    label = { Text("End s") }, singleLine = true, modifier = Modifier.weight(1f))
+            }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
                 enabled = a != null && b != null && a != b && !busy,
@@ -213,6 +254,7 @@ internal fun DukoComparisonPanel(sessions: List<SavedSession>) {
                 a = null; b = null; request = 0; report = null; error = null
                 selectedWindows = null
                 presetA = AbWindowPreset.FULL; presetB = AbWindowPreset.FULL
+                startA = "0"; endA = ""; startB = "0"; endB = ""
             }) { Text("CLEAR") }
         }
         if (busy) Text("Analyzing recorded evidence…", color = AbSubtle)
