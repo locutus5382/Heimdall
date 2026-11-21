@@ -88,6 +88,7 @@ fun SessionHistoryPanel(refreshKey: Long) {
             "Your completed recordings will appear here.",
             color = Subtle
         )
+        if (history.size >= 2) DukoComparisonPanel(history)
         history.forEach { session ->
             Column(
                 modifier = Modifier.fillMaxWidth()
