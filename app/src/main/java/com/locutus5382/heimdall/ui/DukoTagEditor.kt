@@ -84,6 +84,18 @@ internal fun DukoTagEditor(sessionId: Long? = null) {
         OutlinedTextField(tags.game, { declared(tags.copy(game = it)) },
             label = { Text("Game / workload") }, singleLine = true,
             modifier = Modifier.fillMaxWidth())
+        Text("EMULATOR PRESETS · optional; edit the exact version below", color = DukoMuted)
+        DukoOptions(
+            choices = listOf(
+                "Eden", "Dolphin", "NetherSX2", "PPSSPP", "RetroArch",
+                "DuckStation", "melonDS", "Lime3DS", "Azahar", "M64Plus FZ",
+                "Flycast", "Redream", "Winlator", "Other"
+            ),
+            selected = tags.emulator,
+            onChoose = { choice ->
+                if (choice != "Other") declared(tags.copy(emulator = choice))
+            }
+        )
         OutlinedTextField(tags.emulator, { declared(tags.copy(emulator = it)) },
             label = { Text("Emulator and version") }, singleLine = true,
             modifier = Modifier.fillMaxWidth())
