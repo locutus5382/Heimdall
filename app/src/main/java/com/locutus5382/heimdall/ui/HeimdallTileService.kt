@@ -12,6 +12,7 @@ import com.locutus5382.heimdall.engine.RecorderStatus
 import com.locutus5382.heimdall.recording.HeimdallRecorderService
 import com.locutus5382.heimdall.recording.RecorderStatusHub
 import com.locutus5382.heimdall.recording.SessionArchive
+import com.locutus5382.heimdall.recording.TileDispatchGate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -26,6 +27,7 @@ import kotlinx.coroutines.launch
 class HeimdallTileService : TileService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val archive by lazy { SessionArchive(applicationContext) }
+    private val dispatchGate = TileDispatchGate()
 
     override fun onStartListening() {
         super.onStartListening()
@@ -38,7 +40,11 @@ class HeimdallTileService : TileService() {
     }
 
     private fun dispatch() {
+        // Acquire synchronously, before the first suspension. Repeated tile
+        // taps cannot race the unfinished-session disk check or START dispatch.
+        if (!dispatchGate.acquire()) return
         scope.launch {
+            try {
             val state = RecorderStatusHub.state.value
             if (state is RecorderStatus.Preparing ||
                 state is RecorderStatus.Stopping ||
@@ -83,6 +89,9 @@ class HeimdallTileService : TileService() {
                 return@launch
             }
             refresh(pending)
+            } finally {
+                dispatchGate.release()
+            }
         }
     }
 
