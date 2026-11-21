@@ -61,7 +61,7 @@ object DukoAbReportExport {
                 if (comparable) number(item.delta) else "",
                 if (comparable) number(item.percentChange) else "",
                 item.quality.name, item.warnings.joinToString(";"),
-            ).joinToString(",") { escapeCsv(it) })
+            ).mapIndexed { index, value -> escapeCsv(value, index in setOf(8, 9, 10, 15, 16)) }.joinToString(","))
         }
     }
 
@@ -70,9 +70,9 @@ object DukoAbReportExport {
             String.format(Locale.US, "%.6f", it)
         } ?: "N/A"
 
-    private fun escapeCsv(raw: String): String {
+    private fun escapeCsv(raw: String, untrustedText: Boolean): String {
         // Neutralize spreadsheet formula execution for all text fields.
-        val value = if (raw.trimStart().firstOrNull() in listOf('=', '+', '-', '@'))
+        val value = if (untrustedText && raw.trimStart().firstOrNull() in listOf('=', '+', '-', '@'))
             "'" + raw else raw
         return if (value.any { it == ',' || it == '"' || it == '\n' || it == '\r' })
             "\"" + value.replace("\"", "\"\"") + "\"" else value
