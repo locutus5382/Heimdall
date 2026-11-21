@@ -37,3 +37,11 @@
 # in the separately compiled test runner. Preserve this AndroidX class in
 # the optimized QA target; production release shrinking is unaffected.
 -keep class androidx.lifecycle.ViewTreeLifecycleOwner { *; }
+
+# The separately compiled SAF export instrumentation invokes CreateDocument
+# virtual methods directly. R8's optimized QA target previously renamed the
+# contract to f.b and removed/renamed createIntent and parseResult, causing
+# NoSuchMethodError in BOTH test cases even though normal app export compiles.
+# Preserve only this AndroidX contract's binary test ABI in leanDebug; the
+# production release rules and actual document-picker behavior stay unchanged.
+-keep class androidx.activity.result.contract.ActivityResultContracts$CreateDocument { *; }
