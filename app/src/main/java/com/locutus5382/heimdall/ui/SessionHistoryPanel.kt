@@ -24,11 +24,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.locutus5382.heimdall.engine.duko.DukoMetric
+import com.locutus5382.heimdall.engine.duko.DukoFrequencyCapAssessment
+import com.locutus5382.heimdall.engine.duko.DukoFrequencyCapState
+import com.locutus5382.heimdall.recording.DukoDeviceCapture
+import com.locutus5382.heimdall.recording.DukoSessionContextStore
 import com.locutus5382.heimdall.recording.DukoFoundationReport
 import com.locutus5382.heimdall.recording.SavedSession
 import com.locutus5382.heimdall.recording.SessionArchive
 import com.locutus5382.heimdall.recording.SessionOverview
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -38,6 +44,11 @@ private val Subtle = Color(0xFF9EADC2)
 private val Amber = Color(0xFFF2A900)
 private val Slate = Color(0xFF121E32)
 
+/** A completed asynchronous read may publish only into its originating expansion. */
+internal fun mayPublishSessionAnalysis(requestGeneration: Long, currentGeneration: Long,
+    requestSessionId: Long, expandedSessionId: Long?): Boolean =
+    requestGeneration == currentGeneration && requestSessionId == expandedSessionId
+
 private fun fmt(value: Double?) =
     value?.let { String.format(Locale.US, "%.1f", it) } ?: "—"
 
@@ -45,6 +56,7 @@ private fun fmt(value: Double?) =
 fun SessionHistoryPanel(refreshKey: Long) {
     val context = LocalContext.current
     val archive = remember(context) { SessionArchive(context) }
+    val contextStore = remember(context) { DukoSessionContextStore(context) }
     val scope = rememberCoroutineScope()
     var history by remember { mutableStateOf<List<SavedSession>>(emptyList()) }
     var notice by remember { mutableStateOf<String?>(null) }
@@ -52,7 +64,10 @@ fun SessionHistoryPanel(refreshKey: Long) {
     var expandedId by remember { mutableStateOf<Long?>(null) }
     var details by remember { mutableStateOf<SessionOverview?>(null) }
     var foundation by remember { mutableStateOf<DukoFoundationReport?>(null) }
+    var policyCaps by remember { mutableStateOf<DukoFrequencyCapAssessment?>(null) }
     var reading by remember { mutableStateOf(false) }
+    var analyzeJob by remember { mutableStateOf<Job?>(null) }
+    var analyzeGeneration by remember { mutableStateOf(0L) }
 
     val chooser = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/csv")
@@ -74,6 +89,13 @@ fun SessionHistoryPanel(refreshKey: Long) {
     }
 
     LaunchedEffect(refreshKey) {
+        analyzeGeneration++
+        analyzeJob?.cancel()
+        expandedId = null
+        details = null
+        foundation = null
+        policyCaps = null
+        reading = false
         try {
             history = archive.recent()
             notice = null
@@ -115,23 +137,53 @@ fun SessionHistoryPanel(refreshKey: Long) {
                     OutlinedButton(
                         modifier = Modifier.weight(1f),
                         onClick = {
+                            analyzeGeneration++
+                            analyzeJob?.cancel()
+                            val requestGeneration = analyzeGeneration
                             if (expandedId == session.id) {
                                 expandedId = null
                                 details = null
                                 foundation = null
+                                policyCaps = null
+                                reading = false
                             } else {
                                 expandedId = session.id
                                 details = null
                                 foundation = null
+                                policyCaps = null
                                 reading = true
-                                scope.launch {
+                                analyzeJob = scope.launch {
                                     try {
-                                        details = archive.overview(session.id)
-                                        foundation = archive.dukoFoundation(session.id)
+                                        // Keep results local until all mandatory reads finish.
+                                        // Never publish A's data into B's expanded card.
+                                        val overview = archive.overview(session.id)
+                                        val duko = archive.dukoFoundation(session.id)
+                                        // Optional legacy/corrupt profile must not hide valid
+                                        // summary data; it is not verified sensor evidence.
+                                        val caps = runCatching {
+                                            contextStore.deviceProfileJson(session.id)?.let {
+                                                DukoDeviceCapture.assessSavedCpuPolicyCaps(it)
+                                            }
+                                        }.getOrNull()
+                                        if (mayPublishSessionAnalysis(requestGeneration, analyzeGeneration,
+                                            session.id, expandedId)) {
+                                            details = overview
+                                            foundation = duko
+                                            policyCaps = caps
+                                        }
+                                    } catch (cancel: CancellationException) {
+                                        throw cancel
                                     } catch (e: Exception) {
-                                        notice = "Summary unavailable: " + e.javaClass.simpleName
+                                        if (mayPublishSessionAnalysis(requestGeneration, analyzeGeneration,
+                                            session.id, expandedId)) {
+                                            notice = "Summary unavailable: " +
+                                                e.javaClass.simpleName
+                                        }
                                     } finally {
-                                        reading = false
+                                        if (mayPublishSessionAnalysis(requestGeneration, analyzeGeneration,
+                                            session.id, expandedId)) {
+                                            reading = false
+                                        }
                                     }
                                 }
                             }
@@ -147,6 +199,24 @@ fun SessionHistoryPanel(refreshKey: Long) {
                 }
                 if (expandedId == session.id) {
                     DukoTagEditor(sessionId = session.id)
+                    policyCaps?.let { cap ->
+                        Text("CPU POLICY LIMITS · START SNAPSHOT", color = Amber)
+                        val status = when (cap.state) {
+                            DukoFrequencyCapState.OBSERVED_BELOW_HARDWARE_MAX ->
+                                "Observed below hardware maximum: " +
+                                    cap.restrictedPolicyIds.joinToString()
+                            DukoFrequencyCapState.NO_RESTRICTION_OBSERVED ->
+                                "No lower policy ceiling observed"
+                            DukoFrequencyCapState.INSUFFICIENT_EVIDENCE ->
+                                "Insufficient readable policy evidence"
+                        }
+                        Text(status, color = Ink)
+                        Text(
+                            "${cap.comparedPolicyCount} compared · ${cap.unknownPolicyCount} unknown. " +
+                                "A cap does not prove ClusterTune, thermal throttling or its cause.",
+                            color = Subtle
+                        )
+                    }
                     if (reading) Text("Analyzing samples…", color = Subtle)
                     val overview = details
                     if (overview != null) {

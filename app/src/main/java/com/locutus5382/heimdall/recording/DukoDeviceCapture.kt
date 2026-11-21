@@ -5,6 +5,8 @@ import android.os.Build
 import com.locutus5382.heimdall.engine.duko.DukoContract
 import com.locutus5382.heimdall.engine.duko.DukoCpuPolicy
 import com.locutus5382.heimdall.engine.duko.DukoDeviceProfile
+import com.locutus5382.heimdall.engine.duko.DukoFrequencyCapAssessment
+import com.locutus5382.heimdall.engine.duko.DukoFrequencyCapEvidence
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -62,6 +64,25 @@ internal object DukoDeviceCapture {
                 "${it.type}: ${it.file.absolutePath}"
             }
         )
+    }
+
+    /** Evaluate persisted START evidence without re-probing or altering raw samples. */
+    fun assessSavedCpuPolicyCaps(profileJson: String): DukoFrequencyCapAssessment {
+        val array = JSONObject(profileJson).getJSONArray("cpuPolicies")
+        val policies = buildList {
+            for (i in 0 until array.length()) {
+                val p = array.getJSONObject(i)
+                add(DukoCpuPolicy(
+                    policyId = p.optString("id"),
+                    relatedCpus = p.optString("relatedCpus"),
+                    hardwareMaxMHz = if (p.has("hardwareMaxMHz"))
+                        p.optLong("hardwareMaxMHz") else null,
+                    activePolicyMaxMHz = if (p.has("policyMaxMHz"))
+                        p.optLong("policyMaxMHz") else null,
+                ))
+            }
+        }
+        return DukoFrequencyCapEvidence.assess(policies)
     }
 
     fun encode(profile: DukoDeviceProfile): String {
