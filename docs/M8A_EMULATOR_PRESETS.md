@@ -1,7 +1,7 @@
 # M8a — Offline emulator shortcuts
 
-The existing DUKO test-condition editor now offers curated emulator name shortcuts.
-Selecting a shortcut populates the existing free-text **Emulator and version** field;
+The existing DUKO test-condition editor now offers 37 user-supplied emulator names and build variants, searchable by text.
+Selecting a matching catalog entry populates the existing free-text **Emulator and version** field;
 users can append exact build/version information or type any emulator name.
 
 These are **user-declared tags**, not detected installed packages or verified
@@ -14,11 +14,11 @@ not an authoritative emulator-only catalog. The list is intentionally curated
 and is not synchronized with external sources.
 
 Acceptance:
-- Choose Eden, edit to Eden (custom version), and save next-session draft.
+- Filter for Eden, select Eden (Nightly), edit to include its exact version, and save next-session draft.
 - Reopen and confirm the exact string persists.
 - Open a completed session, change emulator, and confirm raw SQLite samples
   remain unchanged.
-- Enter an emulator absent from the shortcuts; it must remain saveable.
+- Enter an emulator absent from the catalog; it must remain saveable.
 - Verify on physical Odin 2 Portal; automated CI does not establish hardware behavior.
 
 Follow-up milestones: time-stamped configuration changes, evidence-qualified
