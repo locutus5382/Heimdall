@@ -346,14 +346,19 @@ internal class HudOverlayController(private val app: Context) :
             p.flags = newFlags
             p.alpha = newAlpha
             updateWindow()
+            // updateWindow may invalidate and remove the Canvas owner.
+            // Never create a standalone unlock overlay after that failure.
+            if (view !== v) return
         }
-        if (config.locked) showUnlock() else removeUnlock()
+        if (config.locked && view === v) showUnlock() else removeUnlock()
         v.contentDescription = if (config.locked)
             "Heimdall HUD locked. Use separate UNLOCK control."
         else "Heimdall HUD. Tap MODE to cycle layouts, LOCK to pass through touches, STOP to save."
     }
 
     private fun showUnlock() {
+        // The unlock chip is meaningful only while its Canvas owner exists.
+        if (view == null || params == null) return
         if (unlock == null) {
             val chip = TextView(app).apply {
                 text = "UNLOCK"
