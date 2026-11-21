@@ -1,5 +1,7 @@
 package com.locutus5382.heimdall.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -19,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.locutus5382.heimdall.engine.duko.DukoAbReportExport
 import com.locutus5382.heimdall.engine.duko.DukoComparisonQuality
 import com.locutus5382.heimdall.engine.duko.DukoComparisonReport
 import com.locutus5382.heimdall.engine.duko.DukoMetric
@@ -26,6 +29,11 @@ import com.locutus5382.heimdall.engine.duko.DukoWindow
 import com.locutus5382.heimdall.recording.SavedSession
 import com.locutus5382.heimdall.recording.SessionArchive
 import java.util.Locale
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import androidx.compose.runtime.rememberCoroutineScope
 
 private val AbInk = Color(0xFFEAF1FF)
 private val AbSubtle = Color(0xFF9EADC2)
@@ -75,12 +83,68 @@ internal fun DukoComparisonPanel(sessions: List<SavedSession>) {
     var selectedWindows by remember { mutableStateOf<Pair<DukoWindow, DukoWindow>?>(null) }
     var report by remember { mutableStateOf<DukoComparisonReport?>(null) }
     var busy by remember { mutableStateOf(false) }
+
     var error by remember { mutableStateOf<String?>(null) }
+    val exportScope = rememberCoroutineScope()
+    // Snapshot when the user requests a document. Never recompute after
+    // the picker returns from possibly changed session selections.
+    var pendingText by remember { mutableStateOf<String?>(null) }
+    var pendingCsv by remember { mutableStateOf<String?>(null) }
+    var exportStatus by remember { mutableStateOf<String?>(null) }
+    val textPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        val payload = pendingText
+        pendingText = null
+        if (uri != null && payload != null) {
+            exportScope.launch {
+                exportStatus = "Saving TXT…"
+                exportStatus = try {
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openOutputStream(uri, "wt")?.use {
+                            it.write(payload.toByteArray(Charsets.UTF_8))
+                            it.flush()
+                        } ?: error("DOCUMENT_PROVIDER_REFUSED_WRITE")
+                    }
+                    "TXT report saved."
+                } catch (cancel: CancellationException) {
+                    throw cancel
+                } catch (e: Exception) {
+                    "TXT export failed: " + e.javaClass.simpleName
+                }
+            }
+        } else exportStatus = "TXT export cancelled."
+    }
+    val csvPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/csv")
+    ) { uri ->
+        val payload = pendingCsv
+        pendingCsv = null
+        if (uri != null && payload != null) {
+            exportScope.launch {
+                exportStatus = "Saving CSV…"
+                exportStatus = try {
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openOutputStream(uri, "wt")?.use {
+                            it.write(payload.toByteArray(Charsets.UTF_8))
+                            it.flush()
+                        } ?: error("DOCUMENT_PROVIDER_REFUSED_WRITE")
+                    }
+                    "CSV report saved."
+                } catch (cancel: CancellationException) {
+                    throw cancel
+                } catch (e: Exception) {
+                    "CSV export failed: " + e.javaClass.simpleName
+                }
+            }
+        } else exportStatus = "CSV export cancelled."
+    }
 
     LaunchedEffect(a, b, request) {
         report = null
         selectedWindows = null
         error = null
+        exportStatus = null
         val left = a
         val right = b
         if (request == 0 || left == null || right == null || left == right) {
@@ -153,12 +217,29 @@ internal fun DukoComparisonPanel(sessions: List<SavedSession>) {
         }
         if (busy) Text("Analyzing recorded evidence…", color = AbSubtle)
         if (error != null) Text(error.orEmpty(), color = AbAmber)
+        if (exportStatus != null) Text(exportStatus.orEmpty(), color = AbSubtle)
         report?.let { result ->
             selectedWindows?.let { (wa, wb) ->
                 Text("A: ${wa.startMs}–${wa.endMs} ms (${wa.durationMs} ms)", color = AbSubtle)
                 Text("B: ${wb.startMs}–${wb.endMs} ms (${wb.durationMs} ms)", color = AbSubtle)
             }
             Text("A #${result.sessionA} → B #${result.sessionB} · ${result.quality.name}", color = AbInk)
+
+            selectedWindows?.let { (wa, wb) ->
+                Text("DUKO REPORT · comparison-only · saved locally", color = AbAmber)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = {
+                        pendingText = DukoAbReportExport.text(result, wa, wb)
+                        exportStatus = null
+                        textPicker.launch("DUKO_AB_${result.sessionA}_${result.sessionB}.txt")
+                    }) { Text("SAVE TXT") }
+                    OutlinedButton(onClick = {
+                        pendingCsv = DukoAbReportExport.csv(result, wa, wb)
+                        exportStatus = null
+                        csvPicker.launch("DUKO_AB_${result.sessionA}_${result.sessionB}.csv")
+                    }) { Text("SAVE CSV") }
+                }
+            }
             result.contextWarnings.forEach {
                 Text(it.replace('_', ' '), color = AbSubtle)
             }
