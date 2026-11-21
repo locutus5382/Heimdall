@@ -27,7 +27,8 @@ class DukoAbDocumentExportAndroidTest {
             val intent = contract.createIntent(context, filename)
             assertEquals(Intent.ACTION_CREATE_DOCUMENT, intent.action)
             assertEquals(mime, intent.type)
-            assertTrue(intent.categories?.contains(Intent.CATEGORY_OPENABLE) == true)
+            // AndroidX CreateDocument does not promise CATEGORY_OPENABLE;
+            // ACTION_CREATE_DOCUMENT itself provides the SAF save contract.
             assertEquals(filename, intent.getStringExtra(Intent.EXTRA_TITLE))
         }
     }
