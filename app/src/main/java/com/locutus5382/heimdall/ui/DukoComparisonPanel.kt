@@ -104,7 +104,7 @@ internal fun DukoComparisonPanel(sessions: List<SavedSession>) {
                         context.contentResolver.openOutputStream(uri, "wt")?.use {
                             it.write(payload.toByteArray(Charsets.UTF_8))
                             it.flush()
-                        } ?: error("DOCUMENT_PROVIDER_REFUSED_WRITE")
+                        } ?: throw java.io.IOException("DOCUMENT_PROVIDER_REFUSED_WRITE")
                     }
                     "TXT report saved."
                 } catch (cancel: CancellationException) {
@@ -128,7 +128,7 @@ internal fun DukoComparisonPanel(sessions: List<SavedSession>) {
                         context.contentResolver.openOutputStream(uri, "wt")?.use {
                             it.write(payload.toByteArray(Charsets.UTF_8))
                             it.flush()
-                        } ?: error("DOCUMENT_PROVIDER_REFUSED_WRITE")
+                        } ?: throw java.io.IOException("DOCUMENT_PROVIDER_REFUSED_WRITE")
                     }
                     "CSV report saved."
                 } catch (cancel: CancellationException) {
