@@ -9,7 +9,7 @@ import com.locutus5382.heimdall.engine.duko.DukoEnergyAccumulator
 import com.locutus5382.heimdall.engine.duko.DukoConfidence
 import com.locutus5382.heimdall.engine.duko.DukoConfidenceReport
 import com.locutus5382.heimdall.engine.duko.DukoEnergyReport
-import com.locutus5382.heimdall.engine.duko.DukoThermal
+import com.locutus5382.heimdall.engine.duko.DukoThermalAccumulator
 import com.locutus5382.heimdall.engine.duko.DukoThermalReport
 import com.locutus5382.heimdall.engine.duko.DukoMetric
 import com.locutus5382.heimdall.engine.duko.DukoMetricAnalysis
@@ -114,14 +114,14 @@ internal class DukoSessionAnalyzer(
             val accumulators = selectedMetrics.associateWith {
                 DukoStatisticsAccumulator(it, window, cadence)
             }
-            // Only temperature trend fitting retains per-tick objects.
-            // Numeric metrics and battery energy now consume the cursor
-            // incrementally while preserving exact report definitions.
-            val thermalSeries = listOf(
+            // Scalar and battery-energy statistics consume the SQLite cursor.
+            // Thermal trends retain only the current and longest continuous
+            // segment, not the full history of all temperature observations.
+            val thermalAccumulators = listOf(
                 DukoMetric.BATTERY_TEMPERATURE,
                 DukoMetric.CPU_TEMPERATURE,
                 DukoMetric.GPU_TEMPERATURE
-            ).associateWith { ArrayList<DukoObservation>() }
+            ).associateWith { DukoThermalAccumulator(it, window, cadence) }
             val batteryEnergy = DukoEnergyAccumulator(window, cadence)
             val selectedSql = if (selectedWindow == null) "" else
                 " AND elapsed_ms>=? AND elapsed_ms<=?"
@@ -195,7 +195,7 @@ internal class DukoSessionAnalyzer(
                             t, metric, value, sourceId = src, origin = origin
                         )
                         accumulators.getValue(metric).accept(observation)
-                        thermalSeries[metric]?.add(observation)
+                        thermalAccumulators[metric]?.accept(observation)
                     }
                 }
             }
@@ -209,14 +209,8 @@ internal class DukoSessionAnalyzer(
             }
             val integrity = DukoSessionIntegrity(outcome, reports)
             val energy = batteryEnergy.finish()
-            val thermal = listOf(
-                DukoMetric.BATTERY_TEMPERATURE,
-                DukoMetric.CPU_TEMPERATURE,
-                DukoMetric.GPU_TEMPERATURE
-            ).associateWith { metric ->
-                DukoThermal.analyze(
-                    metric, window, thermalSeries.getValue(metric), cadence
-                )
+            val thermal = thermalAccumulators.mapValues { (_, analyzer) ->
+                analyzer.finish()
             }
             DukoFoundationReport(
                 sessionId = sessionId,
