@@ -397,6 +397,12 @@ internal class HudOverlayController(private val app: Context) :
                 unlock = chip
                 unlockParams = p
             } catch (e: Exception) {
+                // addView can attach before throwing; do not leave an orphan chip.
+                runCatching {
+                    if (chip.isAttachedToWindow) wm.removeViewImmediate(chip)
+                }.onFailure { Log.w("HeimdallHUD", "Unlock rollback failed", it) }
+                unlock = null
+                unlockParams = null
                 Log.w("HeimdallHUD", "Unlock chip unavailable; release lock", e)
                 store.saveLock(false)
                 return
@@ -428,7 +434,13 @@ internal class HudOverlayController(private val app: Context) :
             else max(0, parent.y - dp(52))
         }
         runCatching { wm.updateViewLayout(chip, p) }
-            .onFailure { Log.w("HeimdallHUD", "Unlock position update", it) }
+            .onFailure {
+                Log.w("HeimdallHUD", "Unlock position update failed; releasing lock", it)
+                // The locked Canvas is click-through: a stale unlock chip
+                // must never remain the sole route back to HUD controls.
+                removeUnlock()
+                store.saveLock(false)
+            }
     }
 
     private fun removeUnlock() {
