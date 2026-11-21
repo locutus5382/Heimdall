@@ -75,9 +75,13 @@ class ClockResidencyAccumulator(
             durations[bandUpperMHz.indexOfFirst { old.mhz <= it }
                 .let { if (it < 0) durations.lastIndex else it }] += dt
             covered += dt
-            if (old.mhz != sample.mhz) {
+            // The boolean validity gate does not smart-cast nullable data-class
+            // properties. Bind both qualified values before calculating deltas.
+            val currentMHz = sample.mhz ?: return
+            val previousMHz = old.mhz ?: return
+            if (previousMHz != currentMHz) {
                 transitions++
-                val delta = sample.mhz - old.mhz
+                val delta = currentMHz - previousMHz
                 if (delta > 0) rise = maxOf(rise ?: 0L, delta)
                 else drop = maxOf(drop ?: 0L, -delta)
             }
