@@ -34,6 +34,47 @@ private val DukoIce = Color(0xFFEAF1FF)
 private val DukoMuted = Color(0xFF94A7C4)
 private val DukoGold = Color(0xFFF0BD62)
 
+/** Curated user-provided Obtainium emulation catalog; these are labels, not detected apps. */
+private val emulatorCatalog = listOf(
+    "aPS3e",
+    "ARMSX1",
+    "ARMSX2",
+    "ARMSX2 Nightly",
+    "ARMSX3",
+    "Azahar",
+    "Cemu",
+    "Cemu (DS)",
+    "Citra MMJ",
+    "Citron Neo",
+    "Dolphin Emulator",
+    "Dolphin Emulator (Dev build)",
+    "Dolphin-MMJR2-VBI",
+    "DuckStation",
+    "Eden",
+    "Eden (Nightly)",
+    "Flycast",
+    "Gopher64",
+    "Hakux",
+    "MelonDS",
+    "MelonDS Nightly",
+    "NetherSX2-Classic",
+    "NetherSX2-Patch",
+    "NetherSX2-Turnip",
+    "Pico8 Android",
+    "Play!",
+    "PPSSPP",
+    "RetroArch (AArch64)",
+    "RetroArch Nightly (AArch64)",
+    "RPCSX",
+    "ScummVM",
+    "Swiff",
+    "Vita3K",
+    "WatermelonDS",
+    "X1 BOX",
+    "X360 Mobile",
+    "Xendroid"
+)
+
 /**
  * A manual test-profile editor, not a device-control screen. When sessionId is
  * absent, save a default for the NEXT recording. When present, edit only that
@@ -84,17 +125,23 @@ internal fun DukoTagEditor(sessionId: Long? = null) {
         OutlinedTextField(tags.game, { declared(tags.copy(game = it)) },
             label = { Text("Game / workload") }, singleLine = true,
             modifier = Modifier.fillMaxWidth())
-        Text("EMULATOR PRESETS · optional; edit the exact version below", color = DukoMuted)
+        Text("EMULATOR CATALOG · filter and select a variant", color = DukoMuted)
+        var emulatorFilter by remember { mutableStateOf("") }
+        OutlinedTextField(
+            value = emulatorFilter,
+            onValueChange = { emulatorFilter = it },
+            label = { Text("Find emulator (e.g. Eden, NetherSX2)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        val matches = emulatorCatalog.filter {
+            it.contains(emulatorFilter.trim(), ignoreCase = true)
+        }
+        Text("${matches.size} matching presets · free text also supported", color = DukoMuted)
         DukoOptions(
-            choices = listOf(
-                "Eden", "Dolphin", "NetherSX2", "PPSSPP", "RetroArch",
-                "DuckStation", "melonDS", "Lime3DS", "Azahar", "M64Plus FZ",
-                "Flycast", "Redream", "Winlator", "Other"
-            ),
+            choices = matches.take(12),
             selected = tags.emulator,
-            onChoose = { choice ->
-                if (choice != "Other") declared(tags.copy(emulator = choice))
-            }
+            onChoose = { declared(tags.copy(emulator = it)) }
         )
         OutlinedTextField(tags.emulator, { declared(tags.copy(emulator = it)) },
             label = { Text("Emulator and version") }, singleLine = true,
