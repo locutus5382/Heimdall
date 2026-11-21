@@ -433,14 +433,14 @@ internal class HudOverlayController(private val app: Context) :
                 parent.y + height + dp(4)
             else max(0, parent.y - dp(52))
         }
-        runCatching { wm.updateViewLayout(chip, p) }
-            .onFailure {
-                Log.w("HeimdallHUD", "Unlock position update failed; releasing lock", it)
-                // The locked Canvas is click-through: a stale unlock chip
-                // must never remain the sole route back to HUD controls.
-                removeUnlock()
-                store.saveLock(false)
-            }
+        // Injectable failure boundary: a rejected WindowManager update must
+        // release stale chip ownership and restore main Canvas touch controls.
+        val updated = updateUnlockOrReleaseLock(
+            update = { wm.updateViewLayout(chip, p) },
+            releaseWindow = { removeUnlock() },
+            releaseLock = { store.saveLock(false) }
+        )
+        if (!updated) Log.w("HeimdallHUD", "Unlock position update failed; released lock")
     }
 
     private fun removeUnlock() {
