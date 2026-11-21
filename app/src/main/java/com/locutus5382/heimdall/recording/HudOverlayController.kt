@@ -287,15 +287,16 @@ internal class HudOverlayController(private val app: Context) :
     private fun updateWindow() {
         val v = view ?: return
         val p = params ?: return
-        runCatching { wm.updateViewLayout(v, p) }
-            .onFailure {
-                // A detached/invalid window must not remain our cached owner:
-                // otherwise every subsequent render tries to update a dead HUD.
+        updateCanvasOrRelease(
+            update = { wm.updateViewLayout(v, p) },
+            release = { failure ->
+                // A detached/invalid window must not remain our cached owner.
                 // Throttle recreation to avoid an overlay-crash loop.
                 lastFailure = SystemClock.elapsedRealtime()
-                Log.w("HeimdallHUD", "Window update failed; releasing HUD", it)
+                Log.w("HeimdallHUD", "Window update failed; releasing HUD", failure)
                 hideWindow()
             }
+        )
     }
 
     private fun snap() {
