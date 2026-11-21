@@ -44,6 +44,11 @@ private val Subtle = Color(0xFF9EADC2)
 private val Amber = Color(0xFFF2A900)
 private val Slate = Color(0xFF121E32)
 
+/** A completed asynchronous read may publish only into its originating expansion. */
+internal fun mayPublishSessionAnalysis(requestGeneration: Long, currentGeneration: Long,
+    requestSessionId: Long, expandedSessionId: Long?): Boolean =
+    requestGeneration == currentGeneration && requestSessionId == expandedSessionId
+
 private fun fmt(value: Double?) =
     value?.let { String.format(Locale.US, "%.1f", it) } ?: "—"
 
@@ -160,8 +165,8 @@ fun SessionHistoryPanel(refreshKey: Long) {
                                                 DukoDeviceCapture.assessSavedCpuPolicyCaps(it)
                                             }
                                         }.getOrNull()
-                                        if (analyzeGeneration == requestGeneration &&
-                                            expandedId == session.id) {
+                                        if (mayPublishSessionAnalysis(requestGeneration, analyzeGeneration,
+                                            session.id, expandedId)) {
                                             details = overview
                                             foundation = duko
                                             policyCaps = caps
@@ -169,14 +174,14 @@ fun SessionHistoryPanel(refreshKey: Long) {
                                     } catch (cancel: CancellationException) {
                                         throw cancel
                                     } catch (e: Exception) {
-                                        if (analyzeGeneration == requestGeneration &&
-                                            expandedId == session.id) {
+                                        if (mayPublishSessionAnalysis(requestGeneration, analyzeGeneration,
+                                            session.id, expandedId)) {
                                             notice = "Summary unavailable: " +
                                                 e.javaClass.simpleName
                                         }
                                     } finally {
-                                        if (analyzeGeneration == requestGeneration &&
-                                            expandedId == session.id) {
+                                        if (mayPublishSessionAnalysis(requestGeneration, analyzeGeneration,
+                                            session.id, expandedId)) {
                                             reading = false
                                         }
                                     }
