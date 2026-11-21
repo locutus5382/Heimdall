@@ -45,6 +45,7 @@ internal enum class AbWindowPreset(val label: String) {
     fun select(bounds: DukoWindow): DukoWindow? {
         if (this == FULL) return bounds
         val duration = bounds.durationMs
+        if (duration < 2L) return null
         val startOffset = when (this) {
             FULL -> 0L
             MIDDLE_80 -> duration / 10L
