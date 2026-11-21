@@ -24,6 +24,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.locutus5382.heimdall.engine.duko.DukoMetric
+import com.locutus5382.heimdall.engine.duko.DukoFrequencyCapAssessment
+import com.locutus5382.heimdall.engine.duko.DukoFrequencyCapState
+import com.locutus5382.heimdall.recording.DukoDeviceCapture
+import com.locutus5382.heimdall.recording.DukoSessionContextStore
 import com.locutus5382.heimdall.recording.DukoFoundationReport
 import com.locutus5382.heimdall.recording.SavedSession
 import com.locutus5382.heimdall.recording.SessionArchive
@@ -45,6 +49,7 @@ private fun fmt(value: Double?) =
 fun SessionHistoryPanel(refreshKey: Long) {
     val context = LocalContext.current
     val archive = remember(context) { SessionArchive(context) }
+    val contextStore = remember(context) { DukoSessionContextStore(context) }
     val scope = rememberCoroutineScope()
     var history by remember { mutableStateOf<List<SavedSession>>(emptyList()) }
     var notice by remember { mutableStateOf<String?>(null) }
@@ -52,6 +57,7 @@ fun SessionHistoryPanel(refreshKey: Long) {
     var expandedId by remember { mutableStateOf<Long?>(null) }
     var details by remember { mutableStateOf<SessionOverview?>(null) }
     var foundation by remember { mutableStateOf<DukoFoundationReport?>(null) }
+    var policyCaps by remember { mutableStateOf<DukoFrequencyCapAssessment?>(null) }
     var reading by remember { mutableStateOf(false) }
 
     val chooser = rememberLauncherForActivityResult(
@@ -119,15 +125,20 @@ fun SessionHistoryPanel(refreshKey: Long) {
                                 expandedId = null
                                 details = null
                                 foundation = null
+                                policyCaps = null
                             } else {
                                 expandedId = session.id
                                 details = null
                                 foundation = null
+                                policyCaps = null
                                 reading = true
                                 scope.launch {
                                     try {
                                         details = archive.overview(session.id)
                                         foundation = archive.dukoFoundation(session.id)
+                                        policyCaps = contextStore.deviceProfileJson(session.id)?.let {
+                                            DukoDeviceCapture.assessSavedCpuPolicyCaps(it)
+                                        }
                                     } catch (e: Exception) {
                                         notice = "Summary unavailable: " + e.javaClass.simpleName
                                     } finally {
@@ -147,6 +158,24 @@ fun SessionHistoryPanel(refreshKey: Long) {
                 }
                 if (expandedId == session.id) {
                     DukoTagEditor(sessionId = session.id)
+                    policyCaps?.let { cap ->
+                        Text("CPU POLICY LIMITS · START SNAPSHOT", color = Amber)
+                        val status = when (cap.state) {
+                            DukoFrequencyCapState.OBSERVED_BELOW_HARDWARE_MAX ->
+                                "Observed below hardware maximum: " +
+                                    cap.restrictedPolicyIds.joinToString()
+                            DukoFrequencyCapState.NO_RESTRICTION_OBSERVED ->
+                                "No lower policy ceiling observed"
+                            DukoFrequencyCapState.INSUFFICIENT_EVIDENCE ->
+                                "Insufficient readable policy evidence"
+                        }
+                        Text(status, color = Ink)
+                        Text(
+                            "${cap.comparedPolicyCount} compared · ${cap.unknownPolicyCount} unknown. " +
+                                "A cap does not prove ClusterTune, thermal throttling or its cause.",
+                            color = Subtle
+                        )
+                    }
                     if (reading) Text("Analyzing samples…", color = Subtle)
                     val overview = details
                     if (overview != null) {
