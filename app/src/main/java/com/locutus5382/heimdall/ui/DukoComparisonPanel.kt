@@ -59,14 +59,14 @@ internal enum class AbWindowPreset(val label: String) {
         val startOffset = when (this) {
             FULL -> 0L
             MIDDLE_80 -> duration / 10L
-            LAST_50 -> duration
-            CUSTOM -> return null / 2L
+            LAST_50 -> duration / 2L
             CUSTOM -> return null
         }
         val endOffset = when (this) {
             FULL -> duration
             MIDDLE_80 -> duration - duration / 10L
             LAST_50 -> duration
+            CUSTOM -> return null
         }
         if (endOffset <= startOffset) return null
         return DukoWindow(bounds.startMs + startOffset,
