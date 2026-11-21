@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import com.locutus5382.heimdall.engine.duko.DukoComparisonQuality
 import com.locutus5382.heimdall.engine.duko.DukoComparisonReport
 import com.locutus5382.heimdall.engine.duko.DukoMetric
+import com.locutus5382.heimdall.engine.duko.DukoWindow
 import com.locutus5382.heimdall.recording.SavedSession
 import com.locutus5382.heimdall.recording.SessionArchive
 import java.util.Locale
@@ -33,6 +34,34 @@ private val AbSlate = Color(0xFF121E32)
 private fun abNumber(n: Double?) =
     n?.let { String.format(Locale.US, "%.1f", it) } ?: "—"
 
+/**
+ * Relative presets use recorded monotonic bounds, not wall-clock timestamps.
+ * Integer arithmetic avoids floating-point rounding for long sessions.
+ * A one-millisecond or empty result is rejected rather than expanded.
+ */
+internal enum class AbWindowPreset(val label: String) {
+    FULL("Full recording"), MIDDLE_80("Middle 80%"), LAST_50("Last 50%");
+
+    fun select(bounds: DukoWindow): DukoWindow? {
+        if (this == FULL) return bounds
+        val duration = bounds.durationMs
+        if (duration < 2L) return null
+        val startOffset = when (this) {
+            FULL -> 0L
+            MIDDLE_80 -> duration / 10L
+            LAST_50 -> duration / 2L
+        }
+        val endOffset = when (this) {
+            FULL -> duration
+            MIDDLE_80 -> duration - duration / 10L
+            LAST_50 -> duration
+        }
+        if (endOffset <= startOffset) return null
+        return DukoWindow(bounds.startMs + startOffset,
+            bounds.startMs + endOffset)
+    }
+}
+
 /** Read-only A/B selection. Never starts, stops or modifies recordings. */
 @Composable
 internal fun DukoComparisonPanel(sessions: List<SavedSession>) {
@@ -41,12 +70,16 @@ internal fun DukoComparisonPanel(sessions: List<SavedSession>) {
     var a by remember { mutableStateOf<Long?>(null) }
     var b by remember { mutableStateOf<Long?>(null) }
     var request by remember { mutableStateOf(0) }
+    var presetA by remember { mutableStateOf(AbWindowPreset.FULL) }
+    var presetB by remember { mutableStateOf(AbWindowPreset.FULL) }
+    var selectedWindows by remember { mutableStateOf<Pair<DukoWindow, DukoWindow>?>(null) }
     var report by remember { mutableStateOf<DukoComparisonReport?>(null) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(a, b, request) {
         report = null
+        selectedWindows = null
         error = null
         val left = a
         val right = b
@@ -56,8 +89,17 @@ internal fun DukoComparisonPanel(sessions: List<SavedSession>) {
         }
         busy = true
         try {
-            report = archive.dukoCompare(left, right)
-            if (report == null) error = "Monotonic evidence unavailable."
+            val boundsA = archive.dukoMonotonicBounds(left)
+            val boundsB = archive.dukoMonotonicBounds(right)
+            val windowA = boundsA?.let(presetA::select)
+            val windowB = boundsB?.let(presetB::select)
+            if (windowA == null || windowB == null) {
+                error = "Recorded monotonic range unavailable for the selected window."
+            } else {
+                report = archive.dukoCompare(left, right, windowA, windowB)
+                if (report == null) error = "Selected windows have insufficient monotonic evidence."
+                else selectedWindows = windowA to windowB
+            }
         } catch (e: Exception) {
             error = "Comparison unavailable: " + e.javaClass.simpleName
         } finally {
@@ -83,6 +125,21 @@ internal fun DukoComparisonPanel(sessions: List<SavedSession>) {
                 }
             }
         }
+        Text("Analysis windows · each recording is bounded independently", color = AbSubtle)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = {
+                presetA = AbWindowPreset.entries[
+                    (presetA.ordinal + 1) % AbWindowPreset.entries.size
+                ]
+                request = 0
+            }) { Text("A: " + presetA.label) }
+            OutlinedButton(onClick = {
+                presetB = AbWindowPreset.entries[
+                    (presetB.ordinal + 1) % AbWindowPreset.entries.size
+                ]
+                request = 0
+            }) { Text("B: " + presetB.label) }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
                 enabled = a != null && b != null && a != b && !busy,
@@ -90,11 +147,17 @@ internal fun DukoComparisonPanel(sessions: List<SavedSession>) {
             ) { Text("COMPARE") }
             OutlinedButton(onClick = {
                 a = null; b = null; request = 0; report = null; error = null
+                selectedWindows = null
+                presetA = AbWindowPreset.FULL; presetB = AbWindowPreset.FULL
             }) { Text("CLEAR") }
         }
         if (busy) Text("Analyzing recorded evidence…", color = AbSubtle)
         if (error != null) Text(error.orEmpty(), color = AbAmber)
         report?.let { result ->
+            selectedWindows?.let { (wa, wb) ->
+                Text("A: ${wa.startMs}–${wa.endMs} ms (${wa.durationMs} ms)", color = AbSubtle)
+                Text("B: ${wb.startMs}–${wb.endMs} ms (${wb.durationMs} ms)", color = AbSubtle)
+            }
             Text("A #${result.sessionA} → B #${result.sessionB} · ${result.quality.name}", color = AbInk)
             result.contextWarnings.forEach {
                 Text(it.replace('_', ' '), color = AbSubtle)

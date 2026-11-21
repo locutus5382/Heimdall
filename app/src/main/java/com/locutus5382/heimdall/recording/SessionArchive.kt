@@ -135,6 +135,35 @@ class SessionArchive(context: Context) {
     ): DukoFoundationReport? =
         DukoSessionAnalyzer(app).analyze(sessionId, selectedWindow)
 
+
+    /**
+     * M5c: exact recorded monotonic extrema, never wall-clock duration.
+     * A completed session with fewer than two distinct monotonic ticks
+     * cannot provide a meaningful bounded comparison interval.
+     */
+    suspend fun dukoMonotonicBounds(sessionId: Long): DukoWindow? =
+        withContext(Dispatchers.IO) {
+            require(sessionId > 0L)
+            if (!path.isFile) return@withContext null
+            val database = helper.readableDatabase
+            val completed = database.rawQuery(
+                "SELECT id FROM sessions WHERE id=? AND status='COMPLETED' LIMIT 1",
+                arrayOf(sessionId.toString())
+            ).use { it.moveToFirst() }
+            if (!completed) return@withContext null
+            database.rawQuery(
+                """SELECT MIN(elapsed_ms), MAX(elapsed_ms) FROM samples
+                   WHERE session_id=? AND elapsed_ms>=0""",
+                arrayOf(sessionId.toString())
+            ).use { c ->
+                if (!c.moveToFirst() || c.isNull(0) || c.isNull(1))
+                    return@withContext null
+                val start = c.getLong(0)
+                val end = c.getLong(1)
+                if (start < 0L || end <= start) null else DukoWindow(start, end)
+            }
+        }
+
     /**
      * M5b: compare two distinct, completed, independently analyzed sessions.
      * Reads are bounded by each selected window and run off the main thread.
