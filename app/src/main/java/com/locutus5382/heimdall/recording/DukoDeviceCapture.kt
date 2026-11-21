@@ -68,17 +68,26 @@ internal object DukoDeviceCapture {
 
     /** Evaluate persisted START evidence without re-probing or altering raw samples. */
     fun assessSavedCpuPolicyCaps(profileJson: String): DukoFrequencyCapAssessment {
-        val array = JSONObject(profileJson).getJSONArray("cpuPolicies")
+        // Historical or damaged optional snapshots must never break session analysis.
+        // Invalid entries count as unknown, not as evidence of an unrestricted CPU.
+        val array = runCatching {
+            JSONObject(profileJson).optJSONArray("cpuPolicies")
+        }.getOrNull() ?: return DukoFrequencyCapEvidence.assess(emptyList())
         val policies = buildList {
             for (i in 0 until array.length()) {
-                val p = array.getJSONObject(i)
+                val p = array.optJSONObject(i)
+                if (p == null) {
+                    add(DukoCpuPolicy(policyId = "", relatedCpus = "",
+                        hardwareMaxMHz = null, activePolicyMaxMHz = null))
+                    continue
+                }
+                fun mhz(key: String): Long? =
+                    p.opt(key)?.toString()?.toLongOrNull()?.takeIf { it > 0L }
                 add(DukoCpuPolicy(
                     policyId = p.optString("id"),
                     relatedCpus = p.optString("relatedCpus"),
-                    hardwareMaxMHz = if (p.has("hardwareMaxMHz"))
-                        p.optLong("hardwareMaxMHz") else null,
-                    activePolicyMaxMHz = if (p.has("policyMaxMHz"))
-                        p.optLong("policyMaxMHz") else null,
+                    hardwareMaxMHz = mhz("hardwareMaxMHz"),
+                    activePolicyMaxMHz = mhz("policyMaxMHz"),
                 ))
             }
         }
