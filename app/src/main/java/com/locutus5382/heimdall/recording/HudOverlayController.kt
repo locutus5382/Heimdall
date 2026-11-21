@@ -31,6 +31,10 @@ import kotlin.math.min
  * 48dp touch target only while the main HUD is explicitly click-through;
  * it is NOT a duplicate HUD or recorder.
  */
+/** Unlock is never allowed to outlive its parent Canvas window. */
+internal fun shouldAttachHudUnlock(canvasOwned: Boolean, locked: Boolean): Boolean =
+    canvasOwned && locked
+
 internal class HudOverlayController(private val app: Context) :
     SharedPreferences.OnSharedPreferenceChangeListener {
 
@@ -151,7 +155,12 @@ internal class HudOverlayController(private val app: Context) :
                 }
             }
         } catch (e: Exception) {
+            // addView may have succeeded before a later setup step failed.
+            // Roll back the actual attached window before clearing ownership.
             lastFailure = SystemClock.elapsedRealtime()
+            runCatching {
+                if (canvas.isAttachedToWindow) wm.removeViewImmediate(canvas)
+            }.onFailure { Log.w("HeimdallHUD", "Canvas rollback failed", it) }
             view = null
             params = null
             Log.w("HeimdallHUD", "Canvas window rejected; recording continues", e)
@@ -279,7 +288,14 @@ internal class HudOverlayController(private val app: Context) :
         val v = view ?: return
         val p = params ?: return
         runCatching { wm.updateViewLayout(v, p) }
-            .onFailure { Log.w("HeimdallHUD", "Window update failed", it) }
+            .onFailure {
+                // A detached/invalid window must not remain our cached owner:
+                // otherwise every subsequent render tries to update a dead HUD.
+                // Throttle recreation to avoid an overlay-crash loop.
+                lastFailure = SystemClock.elapsedRealtime()
+                Log.w("HeimdallHUD", "Window update failed; releasing HUD", it)
+                hideWindow()
+            }
     }
 
     private fun snap() {
@@ -334,14 +350,20 @@ internal class HudOverlayController(private val app: Context) :
             p.flags = newFlags
             p.alpha = newAlpha
             updateWindow()
+            // updateWindow may invalidate and remove the Canvas owner.
+            // Never create a standalone unlock overlay after that failure.
+            if (view !== v) return
         }
-        if (config.locked) showUnlock() else removeUnlock()
+        if (shouldAttachHudUnlock(view === v && params != null, config.locked))
+            showUnlock() else removeUnlock()
         v.contentDescription = if (config.locked)
             "Heimdall HUD locked. Use separate UNLOCK control."
         else "Heimdall HUD. Tap MODE to cycle layouts, LOCK to pass through touches, STOP to save."
     }
 
     private fun showUnlock() {
+        // The unlock chip is meaningful only while its Canvas owner exists.
+        if (view == null || params == null) return
         if (unlock == null) {
             val chip = TextView(app).apply {
                 text = "UNLOCK"
@@ -375,6 +397,12 @@ internal class HudOverlayController(private val app: Context) :
                 unlock = chip
                 unlockParams = p
             } catch (e: Exception) {
+                // addView can attach before throwing; do not leave an orphan chip.
+                runCatching {
+                    if (chip.isAttachedToWindow) wm.removeViewImmediate(chip)
+                }.onFailure { Log.w("HeimdallHUD", "Unlock rollback failed", it) }
+                unlock = null
+                unlockParams = null
                 Log.w("HeimdallHUD", "Unlock chip unavailable; release lock", e)
                 store.saveLock(false)
                 return
@@ -406,7 +434,13 @@ internal class HudOverlayController(private val app: Context) :
             else max(0, parent.y - dp(52))
         }
         runCatching { wm.updateViewLayout(chip, p) }
-            .onFailure { Log.w("HeimdallHUD", "Unlock position update", it) }
+            .onFailure {
+                Log.w("HeimdallHUD", "Unlock position update failed; releasing lock", it)
+                // The locked Canvas is click-through: a stale unlock chip
+                // must never remain the sole route back to HUD controls.
+                removeUnlock()
+                store.saveLock(false)
+            }
     }
 
     private fun removeUnlock() {
