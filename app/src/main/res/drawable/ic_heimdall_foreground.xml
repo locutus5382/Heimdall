@@ -1,0 +1,29 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Vector interpretation of the supplied eye / sentinel / heartbeat mark. -->
+    <path android:pathData="M24,37 C30,20 49,15 66,20 C80,24 90,39 90,54"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#65D5F5" android:strokeWidth="5.3"
+        android:strokeLineCap="round"/>
+    <path android:pathData="M89,53 C92,76 72,91 51,87 C32,84 20,73 19,57"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#65D5F5" android:strokeWidth="5.3"
+        android:strokeLineCap="round"/>
+    <path android:pathData="M35,45 C45,33 65,33 75,45 C66,57 44,57 35,45 Z"
+        android:fillColor="#142B49"
+        android:strokeColor="#65D5F5" android:strokeWidth="4"
+        android:strokeLineJoin="round"/>
+    <path android:pathData="M55,38 A8,8 0,1 1,54.9 38 Z"
+        android:fillColor="#65D5F5"/>
+    <path android:pathData="M54,64 C43,64 40,52 44,48"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#65D5F5" android:strokeWidth="4"
+        android:strokeLineCap="round"/>
+    <path android:pathData="M34,65 L43,65 L48,71 L55,60 L62,66 L68,55 L75,66 L84,66"
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#F16B78" android:strokeWidth="4"
+        android:strokeLineCap="round" android:strokeLineJoin="round"/>
+    <path android:pathData="M58,65 A4.3,4.3 0,1 1,57.9 65 Z"
+        android:fillColor="#F16B78"/>
+</vector>
