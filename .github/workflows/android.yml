@@ -91,6 +91,17 @@ jobs:
               )
               print(f"{flavor}: {apk.name} SHA-256 {digest}")
           PY
+      - name: Verify exact APK digests and checksum regression tests
+        run: |
+          python3 -m unittest scripts.test_verify_rc1_apk -v
+          python3 scripts/verify_rc1_apk.py \
+            app/build/outputs/apk/debug/app-debug.apk \
+            app/build/outputs/apk/debug/heimdall-apk-sha256.txt \
+            --commit "$GITHUB_SHA"
+          python3 scripts/verify_rc1_apk.py \
+            app/build/outputs/apk/leanDebug/app-leanDebug.apk \
+            app/build/outputs/apk/leanDebug/heimdall-apk-sha256.txt \
+            --commit "$GITHUB_SHA"
       - name: Upload standalone debug APK
         uses: actions/upload-artifact@v4
         with:
