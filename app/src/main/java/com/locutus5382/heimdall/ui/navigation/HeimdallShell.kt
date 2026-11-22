@@ -42,6 +42,9 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.key
@@ -110,7 +113,7 @@ fun HeimdallShell(
                     Text("HEIMDALL", color = BifrostColors.Signal,
                         fontWeight = FontWeight.ExtraBold, fontSize = 18.sp,
                         letterSpacing = 1.6.sp,
-                        modifier = Modifier.weight(1f))
+                        modifier = Modifier.weight(1f).semantics { heading() })
                     Text("BIFROST  /  LOCAL OBSERVATORY",
                         color = BifrostColors.Muted, fontSize = if(wide) 11.sp else 9.sp)
                 }
@@ -139,7 +142,7 @@ fun HeimdallShell(
                             Modifier.weight(1f).heightIn(min = 48.dp)
                                 .background(if(selected) BifrostColors.Cobalt
                                     else Color.Transparent, RoundedCornerShape(7.dp))
-                                .clickable { openTab(option) }
+                                .clickable(role = Role.Tab) { openTab(option) }
                                 .padding(horizontal = 8.dp, vertical = 13.dp),
                             contentAlignment = Alignment.Center
                         ) {
@@ -184,7 +187,8 @@ fun HeimdallShell(
                     horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(blade?.name?.replace('_', ' ') ?: "",
                         color = BifrostColors.Ice, fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold)
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.semantics { heading() })
                     Text("CLOSE", color = BifrostColors.Signal,
                         modifier = Modifier.focusRequester(closeFocus)
                             .heightIn(min = 48.dp).clickable { closeBlade() }
