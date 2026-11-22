@@ -13,29 +13,16 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.locutus5382.heimdall.engine.duko.DukoAbReportExport
 import com.locutus5382.heimdall.engine.duko.DukoComparisonQuality
 import com.locutus5382.heimdall.engine.duko.DukoComparisonReport
 import com.locutus5382.heimdall.engine.duko.DukoMetric
 import com.locutus5382.heimdall.engine.duko.DukoWindow
-import com.locutus5382.heimdall.recording.SavedSession
-import com.locutus5382.heimdall.recording.SessionArchive
 import java.util.Locale
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import androidx.compose.runtime.rememberCoroutineScope
 
 private val AbInk = Color(0xFFF2F6FC)
 private val AbSubtle = Color(0xFF94A7C4)
@@ -90,110 +77,31 @@ internal fun customAbWindow(bounds: DukoWindow, startSeconds: String, endSeconds
     return DukoWindow(bounds.startMs + startMs, bounds.startMs + endMs)
 }
 
-/** Read-only A/B selection. Never starts, stops or modifies recordings. */
+/** One A/B screen; lifecycle ViewModel owns selections, work and export snapshots. */
 @Composable
-internal fun DukoComparisonPanel(sessions: List<SavedSession>) {
-    val context = LocalContext.current
-    val archive = remember(context) { SessionArchive(context) }
-    var a by rememberSaveable { mutableStateOf<Long?>(null) }
-    var b by rememberSaveable { mutableStateOf<Long?>(null) }
-    var request by remember { mutableStateOf(0) }
-    var presetA by rememberSaveable { mutableStateOf(AbWindowPreset.FULL) }
-    var presetB by rememberSaveable { mutableStateOf(AbWindowPreset.FULL) }
-    var startA by rememberSaveable { mutableStateOf("0") }
-    var endA by rememberSaveable { mutableStateOf("") }
-    var startB by rememberSaveable { mutableStateOf("0") }
-    var endB by rememberSaveable { mutableStateOf("") }
-    var selectedWindows by remember { mutableStateOf<Pair<DukoWindow, DukoWindow>?>(null) }
-    var report by remember { mutableStateOf<DukoComparisonReport?>(null) }
-    var busy by remember { mutableStateOf(false) }
+internal fun DukoComparisonPanel(model: CompareScreenViewModel) {
+    val state by model.ui.collectAsStateWithLifecycle()
+    val sessions = state.sessions
+    val a = state.a
+    val b = state.b
+    val presetA = state.presetA
+    val presetB = state.presetB
+    val startA = state.startA
+    val endA = state.endA
+    val startB = state.startB
+    val endB = state.endB
+    val selectedWindows = state.selectedWindows
+    val report = state.report
+    val busy = state.busy
+    val error = state.issue
+    val exportStatus = state.exportStatus
 
-    var error by remember { mutableStateOf<String?>(null) }
-    val exportScope = rememberCoroutineScope()
-    // Snapshot when the user requests a document. Never recompute after
-    // the picker returns from possibly changed session selections.
-    var pendingText by remember { mutableStateOf<String?>(null) }
-    var pendingCsv by remember { mutableStateOf<String?>(null) }
-    var exportStatus by remember { mutableStateOf<String?>(null) }
     val textPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/plain")
-    ) { uri ->
-        val payload = pendingText
-        pendingText = null
-        if (uri != null && payload != null) {
-            exportScope.launch {
-                exportStatus = "Saving TXT…"
-                exportStatus = try {
-                    withContext(Dispatchers.IO) {
-                        context.contentResolver.openOutputStream(uri, "wt")?.use {
-                            it.write(payload.toByteArray(Charsets.UTF_8))
-                            it.flush()
-                        } ?: throw java.io.IOException("DOCUMENT_PROVIDER_REFUSED_WRITE")
-                    }
-                    "TXT report saved."
-                } catch (cancel: CancellationException) {
-                    throw cancel
-                } catch (e: Exception) {
-                    "TXT export failed: " + e.javaClass.simpleName
-                }
-            }
-        } else exportStatus = "TXT export cancelled."
-    }
+    ) { uri -> model.onExportResult(ComparisonExport.TXT, uri) }
     val csvPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/csv")
-    ) { uri ->
-        val payload = pendingCsv
-        pendingCsv = null
-        if (uri != null && payload != null) {
-            exportScope.launch {
-                exportStatus = "Saving CSV…"
-                exportStatus = try {
-                    withContext(Dispatchers.IO) {
-                        context.contentResolver.openOutputStream(uri, "wt")?.use {
-                            it.write(payload.toByteArray(Charsets.UTF_8))
-                            it.flush()
-                        } ?: throw java.io.IOException("DOCUMENT_PROVIDER_REFUSED_WRITE")
-                    }
-                    "CSV report saved."
-                } catch (cancel: CancellationException) {
-                    throw cancel
-                } catch (e: Exception) {
-                    "CSV export failed: " + e.javaClass.simpleName
-                }
-            }
-        } else exportStatus = "CSV export cancelled."
-    }
-
-    LaunchedEffect(a, b, request) {
-        report = null
-        selectedWindows = null
-        error = null
-        exportStatus = null
-        val left = a
-        val right = b
-        if (request == 0 || left == null || right == null || left == right) {
-            busy = false
-            return@LaunchedEffect
-        }
-        busy = true
-        try {
-            val boundsA = archive.dukoMonotonicBounds(left)
-            val boundsB = archive.dukoMonotonicBounds(right)
-            val windowA = boundsA?.let { if (presetA == AbWindowPreset.CUSTOM) customAbWindow(it, startA, endA) else presetA.select(it) }
-            val windowB = boundsB?.let { if (presetB == AbWindowPreset.CUSTOM) customAbWindow(it, startB, endB) else presetB.select(it) }
-            if (windowA == null || windowB == null) {
-                error = "Invalid window: enter start/end seconds within each recorded session (end must exceed start)."
-            } else {
-                report = archive.dukoCompare(left, right, windowA, windowB)
-                if (report == null) error = "Selected windows have insufficient monotonic evidence."
-                else selectedWindows = windowA to windowB
-            }
-        } catch (e: Exception) {
-            error = "Comparison unavailable: " + e.javaClass.simpleName
-        } finally {
-            busy = false
-        }
-    }
+    ) { uri -> model.onExportResult(ComparisonExport.CSV, uri) }
     Column(
         modifier = Modifier.fillMaxWidth()
             .background(AbSlate, RoundedCornerShape(17.dp))
@@ -205,58 +113,43 @@ internal fun DukoComparisonPanel(sessions: List<SavedSession>) {
         sessions.forEach { session ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("#${session.id}", color = AbInk, modifier = Modifier.weight(1f))
-                OutlinedButton(onClick = { a = session.id; request = 0 }) {
+                OutlinedButton(onClick = { model.selectA(session.id) }) {
                     Text(if (a == session.id) "A ✓" else "SET A")
                 }
-                OutlinedButton(onClick = { b = session.id; request = 0 }) {
+                OutlinedButton(onClick = { model.selectB(session.id) }) {
                     Text(if (b == session.id) "B ✓" else "SET B")
                 }
             }
         }
         Text("Analysis windows · each recording is bounded independently", color = AbSubtle)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = {
-                presetA = AbWindowPreset.entries[
-                    (presetA.ordinal + 1) % AbWindowPreset.entries.size
-                ]
-                request = 0
-            }) { Text("A: " + presetA.label) }
-            OutlinedButton(onClick = {
-                presetB = AbWindowPreset.entries[
-                    (presetB.ordinal + 1) % AbWindowPreset.entries.size
-                ]
-                request = 0
-            }) { Text("B: " + presetB.label) }
+            OutlinedButton(onClick = { model.cycleA() }) { Text("A: " + presetA.label) }
+            OutlinedButton(onClick = { model.cycleB() }) { Text("B: " + presetB.label) }
         }
         if (presetA == AbWindowPreset.CUSTOM) {
             Text("A: seconds from first recorded sample", color = AbSubtle)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(startA, { startA = it; request = 0 },
+                OutlinedTextField(startA, { model.setStartA(it) },
                     label = { Text("Start s") }, singleLine = true, modifier = Modifier.weight(1f))
-                OutlinedTextField(endA, { endA = it; request = 0 },
+                OutlinedTextField(endA, { model.setEndA(it) },
                     label = { Text("End s") }, singleLine = true, modifier = Modifier.weight(1f))
             }
         }
         if (presetB == AbWindowPreset.CUSTOM) {
             Text("B: seconds from first recorded sample", color = AbSubtle)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(startB, { startB = it; request = 0 },
+                OutlinedTextField(startB, { model.setStartB(it) },
                     label = { Text("Start s") }, singleLine = true, modifier = Modifier.weight(1f))
-                OutlinedTextField(endB, { endB = it; request = 0 },
+                OutlinedTextField(endB, { model.setEndB(it) },
                     label = { Text("End s") }, singleLine = true, modifier = Modifier.weight(1f))
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
-                enabled = a != null && b != null && a != b && !busy,
-                onClick = { request++ }
+                enabled = state.canCompare,
+                onClick = { model.compare() }
             ) { Text("COMPARE") }
-            OutlinedButton(onClick = {
-                a = null; b = null; request = 0; report = null; error = null
-                selectedWindows = null
-                presetA = AbWindowPreset.FULL; presetB = AbWindowPreset.FULL
-                startA = "0"; endA = ""; startB = "0"; endB = ""
-            }) { Text("CLEAR") }
+            OutlinedButton(onClick = { model.clear() }) { Text("CLEAR") }
         }
         if (busy) Text("Analyzing recorded evidence…", color = AbSubtle)
         if (error != null) Text(error.orEmpty(), color = AbAmber)
@@ -271,16 +164,8 @@ internal fun DukoComparisonPanel(sessions: List<SavedSession>) {
             selectedWindows?.let { (wa, wb) ->
                 Text("DUKO REPORT · comparison-only · saved locally", color = AbAmber)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = {
-                        pendingText = DukoAbReportExport.text(result, wa, wb)
-                        exportStatus = null
-                        textPicker.launch("DUKO_AB_${result.sessionA}_${result.sessionB}.txt")
-                    }) { Text("SAVE TXT") }
-                    OutlinedButton(onClick = {
-                        pendingCsv = DukoAbReportExport.csv(result, wa, wb)
-                        exportStatus = null
-                        csvPicker.launch("DUKO_AB_${result.sessionA}_${result.sessionB}.csv")
-                    }) { Text("SAVE CSV") }
+                    OutlinedButton(onClick = { model.prepareExport(ComparisonExport.TXT)?.let(textPicker::launch) }) { Text("SAVE TXT") }
+                    OutlinedButton(onClick = { model.prepareExport(ComparisonExport.CSV)?.let(csvPicker::launch) }) { Text("SAVE CSV") }
                 }
             }
             result.contextWarnings.forEach {
