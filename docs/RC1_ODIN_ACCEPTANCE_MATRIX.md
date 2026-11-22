@@ -8,6 +8,19 @@ This is a **manual device test plan**, not a certification. The source baseline 
 3. Confirm package name, requested permissions, and no INTERNET, root, FPS, MediaProjection, or automatic hardware-control capability. Grant overlay/notification permissions through Android Settings only when prompted.
 4. Record device model (Odin 2 Portal), firmware, Android version, performance profile, fan profile, GPU driver, emulator, and ClusterTune state as manual tags. Unknown values stay unknown.
 
+
+### Exact-byte APK verification and safe upgrade procedure
+
+The `HEIMDALL-v0.7.0-duko-debug` and `HEIMDALL-v0.7.0-duko-lean-debug` CI artifacts each contain one APK and its matching `heimdall-apk-sha256.txt`. The GitHub artifact ZIP digest is **not** the APK digest. Extract the two files from the *same successful exact-head run*, and use the full 40-character commit SHA from that run:
+
+```sh
+python3 scripts/verify_rc1_apk.py app-debug.apk heimdall-apk-sha256.txt --commit FULL_40_CHARACTER_SHA
+```
+
+For the optimized QA artifact substitute `app-leanDebug.apk`. A FAIL means **do not install**; never reuse a manifest from a different workflow or commit. Keep a copy of the APK and checksum record with the test results. The validator verifies byte integrity and commit metadata, **not** whether GitHub's signing key matches a previously installed app or whether the build is safe for production.
+
+Before installation, export/backup any existing Heimdall sessions and note the currently installed package and version. Prefer a non-destructive upgrade using `adb install -r app-debug.apk` (or the optimized APK); if Android reports `INSTALL_FAILED_UPDATE_INCOMPATIBLE` or any signature mismatch, **STOP**. GitHub Actions debug keys can change between runs. Do not uninstall, clear app data, or overwrite the only copy of recorded evidence. Use a separate test device/profile only after confirming it cannot disturb the existing installation. After a successful upgrade, verify the app opens, the existing session list is intact, and START/STOP/exports still work before running longer tests. Do not use `adb install -d` to bypass downgrade protections.
+
 ## Manual test cases — all NOT TESTED
 | ID | Procedure | Required observation | Status |
 |---|---|---|---|
