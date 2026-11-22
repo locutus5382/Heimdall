@@ -10,7 +10,6 @@ import com.locutus5382.heimdall.recording.RecorderStatusHub
 import com.locutus5382.heimdall.recording.SessionArchive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * A single, process-owned composition root. It owns adapters, not a second
@@ -43,17 +42,22 @@ interface RecorderRuntime {
 
 private class AndroidRecorderRuntime(context: Context) : RecorderRuntime {
     private val app = context.applicationContext
-    private val inspected = AtomicBoolean(false)
     override val status: StateFlow<RecorderStatus> = RecorderStatusHub.state
 
     override fun inspectOnce(): String? {
-        if (!inspected.compareAndSet(false, true)) return null
+        // A process-wide "already inspected" flag suppresses recovery if the
+        // Service is stopped and relaunched *inside the same process* (e.g.
+        // after an OEM teardown or a recoverable interruption). INSPECT is an
+        // idempotent, tracked Service command. Skip only truly live recording.
+        if (status.value is RecorderStatus.Recording ||
+            status.value is RecorderStatus.Preparing ||
+            status.value is RecorderStatus.Stopping ||
+            status.value is RecorderStatus.Saving) return null
         return try {
             app.startService(Intent(app, HeimdallRecorderService::class.java)
                 .setAction(HeimdallRecorderService.INSPECT))
             null
         } catch (error: Exception) {
-            inspected.set(false) // a denied inspection may be retried
             "Recorder inspection unavailable: ${error.javaClass.simpleName}"
         }
     }
