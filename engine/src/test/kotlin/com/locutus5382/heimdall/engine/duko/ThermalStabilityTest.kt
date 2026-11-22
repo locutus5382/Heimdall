@@ -55,6 +55,19 @@ class ThermalStabilityTest {
         assertNull(r.lateSlopeCPerMinute)
     }
 
+    @Test fun unverifiedThermalProvenanceCannotQualifyEvenWithFullCoverage() {
+        val rows = (0..36).map {
+            DukoObservation(it * 10_000L, DukoMetric.BATTERY_TEMPERATURE, 35.0,
+                sourceId = "unverified", origin = MeasurementOrigin.UNKNOWN)
+        }
+        val result = analyze(rows)
+        assertEquals(120_000L, result.earlyCoveredMs)
+        assertEquals(120_000L, result.lateCoveredMs)
+        assertEquals(DukoEvidence.INSUFFICIENT, result.evidence)
+        assertNull(result.lateMinusEarlyC)
+        assertFalse(result.latePlateauObserved)
+    }
+
     @Test fun reversedTimestampCannotQualifyPhase() {
         val rows = (0..36).map { row(it * 10_000L, 35.0) }.toMutableList()
         rows.add(10, row(15_000L, 35.0))
