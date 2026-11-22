@@ -90,13 +90,14 @@ class DashboardViewModel(
 
     fun reportIssue(message: String) { issue.value = message }
 
-    fun start() {
+    /** True only if a START intent was dispatched (not yet acknowledged). */
+    fun start(): Boolean {
         val state = runtime.status.value
         val allowed = state is RecorderStatus.Idle ||
             state is RecorderStatus.Finished ||
             (state is RecorderStatus.NeedsAttention && state.sessionId == null)
-        if (!allowed || pending.value != null) return
-        dispatch(PendingCommand.START) { runtime.start() }
+        if (!allowed || pending.value != null) return false
+        return dispatch(PendingCommand.START) { runtime.start() }
     }
 
     fun stop() {
@@ -107,14 +108,14 @@ class DashboardViewModel(
         dispatch(PendingCommand.STOP) { runtime.stop() }
     }
 
-    private fun dispatch(command: PendingCommand, send: () -> String?) {
+    private fun dispatch(command: PendingCommand, send: () -> String?): Boolean {
         issue.value = null
         pending.value = command
         val error = send()
         if (error != null) {
             pending.value = null
             issue.value = error
-            return
+            return false
         }
         viewModelScope.launch {
             delay(8_000L)
@@ -123,6 +124,7 @@ class DashboardViewModel(
                 issue.value = "Recorder has not acknowledged the request; check status before retrying."
             }
         }
+        return true
     }
 
     class Factory(private val graph: HeimdallAppGraph) : ViewModelProvider.Factory {
