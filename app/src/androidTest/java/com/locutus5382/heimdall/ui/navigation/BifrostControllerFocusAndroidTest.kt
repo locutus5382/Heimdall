@@ -54,13 +54,15 @@ class BifrostControllerFocusAndroidTest {
         compose.waitForIdle()
         compose.onNodeWithTag("driver-editor").performClick()
         compose.waitForIdle()
+        // BUTTON_B maps to Android Back on some gamepads: a root Activity
+        // can legitimately finish. Shortcut isolation checks non-Back keys;
+        // Back/navigation behavior is tested by the reducer below.
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         listOf(
             KeyEvent.KEYCODE_BUTTON_X,
             KeyEvent.KEYCODE_BUTTON_Y,
             KeyEvent.KEYCODE_BUTTON_L1,
             KeyEvent.KEYCODE_BUTTON_R1,
-            KeyEvent.KEYCODE_BUTTON_B,
         ).forEach { code ->
             instrumentation.sendKeySync(KeyEvent(KeyEvent.ACTION_DOWN, code))
             instrumentation.sendKeySync(KeyEvent(KeyEvent.ACTION_UP, code))
