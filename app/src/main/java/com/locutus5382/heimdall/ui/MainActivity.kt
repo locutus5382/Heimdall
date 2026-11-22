@@ -51,6 +51,13 @@ import com.locutus5382.heimdall.engine.DeviceSample
 import com.locutus5382.heimdall.engine.RecorderStatus
 import com.locutus5382.heimdall.recording.HeimdallRecorderService
 import com.locutus5382.heimdall.recording.RecorderStatusHub
+import com.locutus5382.heimdall.ui.navigation.HeimdallShell
+import com.locutus5382.heimdall.ui.navigation.BifrostBlade
+import com.locutus5382.heimdall.recording.SessionArchive
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -134,12 +141,41 @@ class MainActivity : ComponentActivity() {
                 primary = Cobalt, secondary = Marigold,
                 background = Night, surface = SurfaceSlate,
                 onPrimary = Ice, onSurface = Ice)) {
-                HeimdallDashboard(
-                    state = state, issue = permissionProblem,
-                    onStart = start, onStop = stop,
-                    hudEnabled = hudEnabled,
-                    hudPermissionGranted = overlayPermission,
-                    onToggleHud = toggleHud)
+                // Bifrost owns navigation; the existing recorder/permission callbacks
+                // remain the only authority for durable START/STOP and HUD opt-in.
+                val finishedSession = (state as? RecorderStatus.Finished)?.sessionId ?: 0L
+                HeimdallShell(
+                    dashboard = {
+                        HeimdallDashboard(
+                            state = state, issue = permissionProblem,
+                            onStart = start, onStop = stop,
+                            hudEnabled = hudEnabled,
+                            hudPermissionGranted = overlayPermission,
+                            onToggleHud = toggleHud,
+                            showHistory = false,
+                            showStudio = false,
+                            showTags = false,
+                            showDiagnostics = false)
+                    },
+                    sessions = { SessionHistoryPanel(refreshKey = finishedSession, showComparison = false) },
+                    compare = { BifrostCompareScreen(refreshKey = finishedSession) },
+                    bladeContent = { blade ->
+                        when (blade) {
+                            BifrostBlade.SETUP -> DukoTagEditor(
+                                sessionId = (state as? RecorderStatus.Recording)?.sessionId)
+                            BifrostBlade.HUD_STUDIO -> {
+                                OutlinedButton(onClick = toggleHud) {
+                                    Text(if (hudEnabled) "Disable HUD" else "Enable HUD")
+                                }
+                                if (hudEnabled && !overlayPermission)
+                                    Text("Android overlay permission required", color = Marigold)
+                                HudStudioPanel()
+                            }
+                            BifrostBlade.RUN_PICKER -> BifrostCompareScreen(refreshKey = finishedSession)
+                            BifrostBlade.DIAGNOSTICS -> DiagnosticsPanel()
+                        }
+                    }
+                )
             }
         }
     }
@@ -163,6 +199,10 @@ private fun HeimdallDashboard(
     hudEnabled: Boolean,
     hudPermissionGranted: Boolean,
     onToggleHud: () -> Unit,
+    showHistory: Boolean = true,
+    showStudio: Boolean = true,
+    showTags: Boolean = true,
+    showDiagnostics: Boolean = true,
 ) {
     val recording = state as? RecorderStatus.Recording
     val attention = state as? RecorderStatus.NeedsAttention
@@ -254,10 +294,10 @@ private fun HeimdallDashboard(
                     color = Marigold
                 )
             }
-            DukoTagEditor(
+            if (showTags) DukoTagEditor(
                 sessionId = (state as? RecorderStatus.Recording)?.sessionId
             )
-            HudStudioPanel()
+            if (showStudio) HudStudioPanel()
             Text("Quick Settings: add Heimdall Record in Android's tile editor.",
                 color = Muted, fontSize = 12.sp)
             Text("LIVE TELEMETRY", fontSize = 13.sp,
@@ -286,10 +326,10 @@ private fun HeimdallDashboard(
                     "$it MHz"
                 } ?: "—", Modifier.weight(1f))
             }
-            SessionHistoryPanel(
+            if (showHistory) SessionHistoryPanel(
                 refreshKey = (state as? RecorderStatus.Finished)?.sessionId ?: 0L
             )
-            DiagnosticsPanel()
+            if (showDiagnostics) DiagnosticsPanel()
             Text("HEIMDALL · M4 HUD / 0.5 ALPHA", color = Marigold, fontSize = 12.sp,
                 fontWeight = FontWeight.Bold)
             Text("One native recorder. Transactional session storage, " +
@@ -337,5 +377,34 @@ private fun MetricCard(label: String, value: String, modifier: Modifier) {
         Text(value, color = Ice, fontSize = 17.sp,
             fontWeight = FontWeight.Bold, maxLines = 1,
             overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** Saved-run comparison uses the existing evidence-qualified DUKO engine.
+ * Read session metadata off the composition thread and never invent live A/B results.
+ */
+@Composable
+private fun BifrostCompareScreen(refreshKey: Long) {
+    val context = LocalContext.current
+    val archive = remember(context) { SessionArchive(context) }
+    var sessions by remember { mutableStateOf<List<com.locutus5382.heimdall.recording.SavedSession>>(emptyList()) }
+    var problem by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(refreshKey) {
+        try {
+            sessions = withContext(Dispatchers.IO) { archive.recent() }
+            problem = null
+        } catch (e: Exception) {
+            problem = "Saved runs unavailable: " + e.javaClass.simpleName
+        }
+    }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("DUKO · SAVED RUN COMPARISON", color = Marigold,
+            fontWeight = FontWeight.Bold)
+        Text("Select recorded baseline and candidate runs. Comparisons are descriptive, not causal.",
+            color = Muted)
+        problem?.let { Text(it, color = Marigold) }
+        if (sessions.size < 2) Text("Record at least two sessions to compare.", color = Muted)
+        else DukoComparisonPanel(sessions)
     }
 }
