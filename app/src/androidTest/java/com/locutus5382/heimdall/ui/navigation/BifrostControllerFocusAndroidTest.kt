@@ -8,6 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.locutus5382.heimdall.ui.MainActivity
@@ -26,8 +27,9 @@ import org.junit.runner.RunWith
  * Regression for PR #53 P1: the gamepad handler must not be an ancestor of
  * editable content. The editor receives gamepad input without changing tabs
  * or opening Setup/HUD blades. A focused navigation header still owns shortcuts.
- * Launch the app's registered MainActivity rather than relying on a nonexistent
- * LAUNCHER activity in the .test instrumentation package.
+ * Launch the registered MainActivity, then replace its view hierarchy with a
+ * standalone ComposeView; do not call rule.setContent after MainActivity has
+ * already installed content in onCreate.
  */
 @RunWith(AndroidJUnit4::class)
 class BifrostControllerFocusAndroidTest {
@@ -35,8 +37,10 @@ class BifrostControllerFocusAndroidTest {
 
     @Test fun editorFocusDoesNotTriggerGlobalGamepadShortcuts() {
         var edited by mutableStateOf("Turnip")
-        compose.setContent {
-            HeimdallShell(
+        compose.runOnUiThread {
+            compose.activity.setContentView(ComposeView(compose.activity).apply {
+                setContent {
+                    HeimdallShell(
                 dashboard = {
                     Column {
                         Text("Dashboard content", Modifier.testTag("dashboard-content"))
@@ -50,7 +54,9 @@ class BifrostControllerFocusAndroidTest {
                 sessions = { Text("Sessions content", Modifier.testTag("sessions-content")) },
                 compare = { Text("Compare content", Modifier.testTag("compare-content")) },
                 bladeContent = { Text("Blade content", Modifier.testTag("blade-content")) },
-            )
+                    )
+                }
+            })
         }
         compose.onNodeWithTag("driver-editor").performClick()
         compose.waitForIdle()
