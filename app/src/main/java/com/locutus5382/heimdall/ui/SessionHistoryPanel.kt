@@ -15,13 +15,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.locutus5382.heimdall.engine.duko.ClockResidencyResult
 import com.locutus5382.heimdall.engine.duko.ThermalStabilityResult
@@ -29,15 +25,6 @@ import com.locutus5382.heimdall.engine.duko.DukoEvidence
 import com.locutus5382.heimdall.engine.duko.DukoMetric
 import com.locutus5382.heimdall.engine.duko.DukoFrequencyCapAssessment
 import com.locutus5382.heimdall.engine.duko.DukoFrequencyCapState
-import com.locutus5382.heimdall.recording.DukoDeviceCapture
-import com.locutus5382.heimdall.recording.DukoSessionContextStore
-import com.locutus5382.heimdall.recording.DukoFoundationReport
-import com.locutus5382.heimdall.recording.SavedSession
-import com.locutus5382.heimdall.recording.SessionArchive
-import com.locutus5382.heimdall.recording.SessionOverview
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.CancellationException
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -102,56 +89,25 @@ internal fun thermalStabilityLines(result: ThermalStabilityResult): List<String>
 }
 
 @Composable
-fun SessionHistoryPanel(refreshKey: Long, showComparison: Boolean = true) {
-    val context = LocalContext.current
-    val archive = remember(context) { SessionArchive(context) }
-    val contextStore = remember(context) { DukoSessionContextStore(context) }
-    val scope = rememberCoroutineScope()
-    var history by remember { mutableStateOf<List<SavedSession>>(emptyList()) }
-    var notice by remember { mutableStateOf<String?>(null) }
-    var exportTarget by remember { mutableStateOf<Long?>(null) }
-    var expandedId by remember { mutableStateOf<Long?>(null) }
-    var details by remember { mutableStateOf<SessionOverview?>(null) }
-    var foundation by remember { mutableStateOf<DukoFoundationReport?>(null) }
-    var policyCaps by remember { mutableStateOf<DukoFrequencyCapAssessment?>(null) }
-    var reading by remember { mutableStateOf(false) }
-    var analyzeJob by remember { mutableStateOf<Job?>(null) }
-    var analyzeGeneration by remember { mutableStateOf(0L) }
+internal fun SessionHistoryPanel(
+    refreshKey: Long,
+    showComparison: Boolean = false,
+    model: SessionScreenViewModel,
+) {
+    val state by model.ui.collectAsStateWithLifecycle()
+    val history = state.history
+    val notice = state.notice
+    val expandedId = state.expandedId
+    val details = state.detail?.overview
+    val foundation = state.detail?.duko
+    val policyCaps = state.detail?.caps
+    val reading = state.reading
 
     val chooser = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/csv")
-    ) { destination ->
-        val id = exportTarget
-        exportTarget = null
-        if (destination != null && id != null) {
-            scope.launch {
-                try {
-                    val stream = context.contentResolver.openOutputStream(destination)
-                        ?: error("DESTINATION_UNAVAILABLE")
-                    val count = archive.exportCsv(id, stream)
-                    notice = "Session #$id exported: $count samples."
-                } catch (e: Exception) {
-                    notice = "CSV export failed: " + e.javaClass.simpleName
-                }
-            }
-        }
-    }
+    ) { uri -> model.onExportResult(uri) }
 
-    LaunchedEffect(refreshKey) {
-        analyzeGeneration++
-        analyzeJob?.cancel()
-        expandedId = null
-        details = null
-        foundation = null
-        policyCaps = null
-        reading = false
-        try {
-            history = archive.recent()
-            notice = null
-        } catch (e: Exception) {
-            notice = "Session history unavailable: " + e.javaClass.simpleName
-        }
-    }
+    LaunchedEffect(refreshKey) { model.refresh(refreshKey) }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("SAVED RUNS", color = Amber)
@@ -159,7 +115,7 @@ fun SessionHistoryPanel(refreshKey: Long, showComparison: Boolean = true) {
             "Your completed recordings will appear here.",
             color = Subtle
         )
-        if (showComparison && history.size >= 2) DukoComparisonPanel(history)
+        // Compare has one dedicated tab; never mount a second A/B panel here.
         history.forEach { session ->
             Column(
                 modifier = Modifier.fillMaxWidth()
@@ -185,64 +141,13 @@ fun SessionHistoryPanel(refreshKey: Long, showComparison: Boolean = true) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
                         modifier = Modifier.weight(1f),
-                        onClick = {
-                            analyzeGeneration++
-                            analyzeJob?.cancel()
-                            val requestGeneration = analyzeGeneration
-                            if (expandedId == session.id) {
-                                expandedId = null
-                                details = null
-                                foundation = null
-                                policyCaps = null
-                                reading = false
-                            } else {
-                                expandedId = session.id
-                                details = null
-                                foundation = null
-                                policyCaps = null
-                                reading = true
-                                analyzeJob = scope.launch {
-                                    try {
-                                        // Keep results local until all mandatory reads finish.
-                                        // Never publish A's data into B's expanded card.
-                                        val overview = archive.overview(session.id)
-                                        val duko = archive.dukoFoundation(session.id)
-                                        // Optional legacy/corrupt profile must not hide valid
-                                        // summary data; it is not verified sensor evidence.
-                                        val caps = runCatching {
-                                            contextStore.deviceProfileJson(session.id)?.let {
-                                                DukoDeviceCapture.assessSavedCpuPolicyCaps(it)
-                                            }
-                                        }.getOrNull()
-                                        if (mayPublishSessionAnalysis(requestGeneration, analyzeGeneration,
-                                            session.id, expandedId)) {
-                                            details = overview
-                                            foundation = duko
-                                            policyCaps = caps
-                                        }
-                                    } catch (cancel: CancellationException) {
-                                        throw cancel
-                                    } catch (e: Exception) {
-                                        if (mayPublishSessionAnalysis(requestGeneration, analyzeGeneration,
-                                            session.id, expandedId)) {
-                                            notice = "Summary unavailable: " +
-                                                e.javaClass.simpleName
-                                        }
-                                    } finally {
-                                        if (mayPublishSessionAnalysis(requestGeneration, analyzeGeneration,
-                                            session.id, expandedId)) {
-                                            reading = false
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        onClick = { model.toggle(session.id) }
                     ) { Text(if (expandedId == session.id) "HIDE" else "ANALYZE") }
                     OutlinedButton(
                         modifier = Modifier.weight(1f),
                         onClick = {
-                            exportTarget = session.id
-                            chooser.launch("Heimdall_session_${session.id}.csv")
+                            if (model.requestExport(session.id))
+                                chooser.launch("Heimdall_session_${session.id}.csv")
                         }
                     ) { Text("EXPORT CSV") }
                 }
