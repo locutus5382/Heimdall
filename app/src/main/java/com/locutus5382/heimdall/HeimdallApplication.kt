@@ -27,6 +27,9 @@ class HeimdallAppGraph(application: Application) {
     val hudPreferences: HudPreferenceRepository by lazy {
         HudPreferenceRepository(application)
     }
+    val testProfiles: TestProfileRepository by lazy {
+        TestProfileRepository(application)
+    }
 }
 
 /** Commands are only dispatched to the one existing foreground service. */
