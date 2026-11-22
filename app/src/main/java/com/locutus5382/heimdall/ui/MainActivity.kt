@@ -67,8 +67,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
             val start: () -> Unit = {
-                dashboardModel.start()
-                if (Build.VERSION.SDK_INT >= 33 &&
+                if (dashboardModel.start() && Build.VERSION.SDK_INT >= 33 &&
                     checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
                     PackageManager.PERMISSION_GRANTED) {
                     notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
