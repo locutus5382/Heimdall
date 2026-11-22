@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.locutus5382.heimdall.engine.duko.DukoComparisonReport
+import com.locutus5382.heimdall.engine.duko.DukoComparisonQuality
 import com.locutus5382.heimdall.engine.duko.DukoWindow
 import com.locutus5382.heimdall.recording.SavedSession
 import com.locutus5382.heimdall.recording.SessionOverview
@@ -67,6 +68,49 @@ class BifrostStateOwnershipAndroidTest {
         }
     }
 
+    @Test fun abExportUsesFrozenAnalysisEvenAfterSelectionChanges() {
+        var exportedText: String? = null
+        val source = object : ComparisonDataSource {
+            override suspend fun recent() = rows
+            override suspend fun bounds(id: Long) = DukoWindow(0L, 10000L)
+            override suspend fun compare(a: Long, b: Long, wa: DukoWindow, wb: DukoWindow) =
+                DukoComparisonReport(a, b, DukoComparisonQuality.CAUTION,
+                    listOf("USER_DECLARED"), emptyMap())
+            override suspend fun write(uri: Uri, payload: String) {
+                exportedText = payload
+            }
+        }
+        lateinit var model: CompareScreenViewModel
+        activity.scenario.onActivity { host ->
+            model = ViewModelProvider(host, CompareScreenViewModel.Factory(source))
+                .get(CompareScreenViewModel::class.java)
+            model.refresh(0L)
+        }
+        waitUntil("saved A/B runs") { model.ui.value.sessions.size == 2 }
+        activity.scenario.onActivity {
+            model.selectA(41L)
+            model.selectB(42L)
+            model.compare()
+        }
+        waitUntil("qualified comparison") { model.ui.value.report != null }
+        activity.scenario.onActivity {
+            val filename = model.prepareExport(ComparisonExport.TXT)
+            assertEquals("DUKO_AB_41_42.txt", filename)
+            model.selectB(41L) // invalidates displayed analysis, NOT frozen export
+        }
+        activity.scenario.recreate()
+        activity.scenario.onActivity { host ->
+            val restored = ViewModelProvider(host, CompareScreenViewModel.Factory(source))
+                .get(CompareScreenViewModel::class.java)
+            assertSame(model, restored)
+            restored.onExportResult(ComparisonExport.TXT,
+                Uri.parse("content://heimdall.test/ab-report"))
+        }
+        waitUntil("frozen A/B export") { exportedText != null }
+        assertTrue(exportedText!!.contains("Session A: 41"))
+        assertTrue(exportedText!!.contains("Session B: 42"))
+    }
+
     @Test fun pendingSessionExportUsesOriginalIdAfterRecreation() {
         var exportedId: Long? = null
         val source = object : SessionScreenDataSource {
@@ -95,7 +139,7 @@ class BifrostStateOwnershipAndroidTest {
             assertEquals(41L, restored.ui.value.pendingExportId)
             restored.onExportResult(Uri.parse("content://heimdall.test/session-41"))
         }
-        waitUntil("CSV export") { exportedId == 41L }
+        waitUntil("CSV export") { exportedId == 41L && !original.ui.value.exporting }
         assertEquals(41L, exportedId)
         assertFalse(original.ui.value.exporting)
     }
