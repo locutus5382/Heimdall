@@ -8,6 +8,9 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,6 +41,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.key
@@ -59,6 +64,7 @@ fun HeimdallShell(
 ) {
     var tabName by rememberSaveable { mutableStateOf(BifrostTab.DASHBOARD.name) }
     var bladeName by rememberSaveable { mutableStateOf<String?>(null) }
+    val screenState = rememberSaveableStateHolder()
     val tab = BifrostTab.entries.firstOrNull { it.name == tabName } ?: BifrostTab.DASHBOARD
     val blade = BifrostBlade.entries.firstOrNull { it.name == bladeName }
     val closeBlade = { bladeName = null }
@@ -75,17 +81,26 @@ fun HeimdallShell(
     val navFocus = remember { FocusRequester() }
     val closeFocus = remember { FocusRequester() }
     var navFocused by remember { mutableStateOf(false) }
-    BackHandler(enabled = blade != null) { closeBlade() }
+    BackHandler(enabled = blade != null || tab != BifrostTab.DASHBOARD) {
+        if (blade != null) closeBlade() else openTab(BifrostTab.DASHBOARD)
+    }
     // When a blade opens by touch or controller, place focus on its explicit CLOSE
     // control. No root preview handler is allowed to capture text entry.
+    var focusWasInBlade by remember { mutableStateOf(false) }
     LaunchedEffect(blade) {
         if (blade != null) {
+            focusWasInBlade = true
             delay(200L)
             closeFocus.requestFocus()
+        } else if (focusWasInBlade) {
+            focusWasInBlade = false
+            navFocus.requestFocus()
         }
     }
 
-    BoxWithConstraints(Modifier.fillMaxSize().background(BifrostColors.Midnight)) {
+    BoxWithConstraints(Modifier.fillMaxSize()
+        .background(BifrostColors.Midnight)
+        .safeDrawingPadding().imePadding()) {
         val wide = maxWidth >= 700.dp
         Column(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxWidth().background(BifrostColors.Editorial)) {
@@ -137,17 +152,22 @@ fun HeimdallShell(
                 }
             }
             Box(Modifier.fillMaxSize()) {
-                when (tab) {
-                    BifrostTab.DASHBOARD -> dashboard(openBlade, openTab)
-                    BifrostTab.SESSIONS -> sessions()
-                    BifrostTab.COMPARE -> compare()
+                // Ordinary rememberSaveable state belongs to each destination,
+                // not to whichever composable was last in the single slot.
+                screenState.SaveableStateProvider(tab.name) {
+                    when (tab) {
+                        BifrostTab.DASHBOARD -> dashboard(openBlade, openTab)
+                        BifrostTab.SESSIONS -> sessions()
+                        BifrostTab.COMPARE -> compare()
+                    }
                 }
             }
         }
         if (blade != null) {
+            // The modal scrim is touch-only; it must not steal gamepad focus.
             Box(Modifier.fillMaxSize()
                 .background(BifrostColors.Midnight.copy(alpha = 0.65f))
-                .clickable { closeBlade() })
+                .pointerInput(Unit) { detectTapGestures { closeBlade() } })
         }
         AnimatedVisibility(
             visible = blade != null,
