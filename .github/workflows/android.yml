@@ -53,6 +53,19 @@ jobs:
             app/build/outputs/apk/leanDebug/app-leanDebug.apk \
             app/build/outputs/apk/release/app-release-unsigned.apk \
             app/build/outputs/apk/releaseQa/app-releaseQa.apk
+      - name: Verify Bifrost test host only in target QA variants
+        run: |
+          AAPT="$ANDROID_HOME/build-tools/36.0.0/aapt"
+          HOST="com.locutus5382.heimdall.ui.navigation.BifrostTestActivity"
+          for APK in app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/leanDebug/app-leanDebug.apk; do
+            "$AAPT" dump xmltree "$APK" AndroidManifest.xml | grep -F "$HOST"
+          done
+          for APK in app/build/outputs/apk/release/app-release-unsigned.apk app/build/outputs/apk/releaseQa/app-releaseQa.apk; do
+            if "$AAPT" dump xmltree "$APK" AndroidManifest.xml | grep -F "$HOST"; then
+              echo "Test-only Bifrost host leaked into release variant: $APK" >&2
+              exit 1
+            fi
+          done
       - name: Verify standalone Heimdall application ID
         run: |
           APK=app/build/outputs/apk/debug/app-debug.apk
