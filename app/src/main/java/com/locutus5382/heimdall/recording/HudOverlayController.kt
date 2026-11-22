@@ -180,8 +180,8 @@ internal class HudOverlayController(private val app: Context) :
         v.update(config, recording.sessionId,
             recording.last, history.snapshot(), saving = stopSent,
             elapsedMs = now - sessionObservedStartMs,
-            thermal = safetyState.batteryIndicator,
-            alert = safetyState.primary)
+            thermal = safetyEngine.visibleStateAt(now).batteryIndicator,
+            alert = safetyEngine.visibleStateAt(now).primary)
         val originalX = params?.x
         val originalY = params?.y
         alignDock(config)
