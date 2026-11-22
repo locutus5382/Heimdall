@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.locutus5382.heimdall.TestProfilePreview
 import com.locutus5382.heimdall.engine.DeviceSample
 import com.locutus5382.heimdall.engine.RecorderStatus
 import com.locutus5382.heimdall.ui.navigation.BifrostTestActivity
@@ -56,6 +57,38 @@ class BifrostDashboardAndroidTest {
         assertEquals(1, setup)
         assertEquals(1, sessions)
         assertEquals(1, diagnostics)
+    }
+
+    @Test fun dispatchedStartDoesNotClaimRecordingAndExposesTestProfile() {
+        compose.setContent {
+            HeimdallTheme {
+                BifrostDashboard(
+                    status = RecorderStatus.Idle,
+                    issue = null,
+                    hudEnabled = true,
+                    overlayPermission = true,
+                    commandPending = true,
+                    testProfile = TestProfilePreview(
+                        title = "Hades · Eden",
+                        details = "Driver: T30 · Mode: Standard",
+                        userDeclared = true
+                    ),
+                    onStart = {},
+                    onStop = {},
+                    onToggleHud = {},
+                    onSetup = {},
+                    onHudStudio = {},
+                    onSessions = {},
+                    onDiagnostics = {}
+                )
+            }
+        }
+        compose.onNodeWithText("START").assertIsNotEnabled()
+        compose.onNodeWithText("Request dispatched · awaiting recorder state")
+            .assertExists()
+        compose.onNodeWithText("Hades · Eden").performScrollTo().assertExists()
+        compose.onNodeWithText("Ready for next recording · overlay appears during capture")
+            .performScrollTo().assertExists()
     }
 
     @Test fun recordingShowsOnlyAvailableRealSensorReadings() {
