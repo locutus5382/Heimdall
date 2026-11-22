@@ -22,103 +22,81 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.locutus5382.heimdall.HeimdallApplication
 import com.locutus5382.heimdall.engine.RecorderStatus
-import com.locutus5382.heimdall.recording.HeimdallRecorderService
-import com.locutus5382.heimdall.recording.RecorderStatusHub
 import com.locutus5382.heimdall.recording.SavedSession
 import com.locutus5382.heimdall.recording.SessionArchive
 import com.locutus5382.heimdall.ui.dashboard.BifrostDashboard
+import com.locutus5382.heimdall.ui.dashboard.DashboardViewModel
 import com.locutus5382.heimdall.ui.navigation.BifrostBlade
 import com.locutus5382.heimdall.ui.navigation.BifrostTab
 import com.locutus5382.heimdall.ui.navigation.HeimdallShell
 import com.locutus5382.heimdall.ui.theme.BifrostColors
 import com.locutus5382.heimdall.ui.theme.HeimdallTheme
-import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
- * Android commands and permissions belong here. The Bifrost UI owns only
- * navigation and presentation; the existing service owns all sample collection.
+ * Android UI/permission boundary. The Application owns the shared adapters,
+ * the ViewModel owns UI state, the Service owns the ONLY recording engine.
+ * No service/SQLite object is constructed by the Dashboard.
  */
 class MainActivity : ComponentActivity() {
-    private val overlayGranted = MutableStateFlow(false)
-
-    override fun onResume() {
-        super.onResume()
-        overlayGranted.value = Settings.canDrawOverlays(this)
-    }
+    private lateinit var dashboardModel: DashboardViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val restoreProblem = try {
-            startService(Intent(this, HeimdallRecorderService::class.java)
-                .setAction(HeimdallRecorderService.INSPECT))
-            null
-        } catch (error: Exception) {
-            "Could not inspect recorder status: " + error.javaClass.simpleName
-        }
+        val graph = (application as HeimdallApplication).graph
+        dashboardModel = ViewModelProvider(this, DashboardViewModel.Factory(graph))
+            .get(DashboardViewModel::class.java)
+        dashboardModel.inspect()
         setContent {
-            val state by RecorderStatusHub.state.collectAsState()
-            var permissionProblem by remember { mutableStateOf(restoreProblem) }
-            val hudPreferences = remember {
-                getSharedPreferences("heimdall_ui_v1", MODE_PRIVATE)
-            }
-            var hudEnabled by remember {
-                mutableStateOf(hudPreferences.getBoolean("hud_enabled", false))
-            }
-            val overlayAllowed by overlayGranted.collectAsState()
-
-            val toggleHud = {
-                val next = !hudEnabled
-                hudPreferences.edit().putBoolean("hud_enabled", next).apply()
-                hudEnabled = next
-                if (next && !Settings.canDrawOverlays(this@MainActivity)) {
-                    startActivity(Intent(
-                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:$packageName")
-                    ))
-                }
-            }
+            val state by dashboardModel.uiState.collectAsStateWithLifecycle()
             val notificationPermission = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestPermission()
             ) { granted ->
-                if (!granted) permissionProblem =
+                if (!granted) dashboardModel.reportIssue(
                     "Android may hide the notification; in-app STOP remains available."
+                )
             }
             val start: () -> Unit = {
-                permissionProblem = null
-                requestService(HeimdallRecorderService.START) {
-                    permissionProblem = it
-                }
+                dashboardModel.start()
                 if (Build.VERSION.SDK_INT >= 33 &&
                     checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
                     PackageManager.PERMISSION_GRANTED) {
                     notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
             }
-            val stop: () -> Unit = {
-                permissionProblem = null
-                requestService(HeimdallRecorderService.STOP) {
-                    permissionProblem = it
+            val stop: () -> Unit = { dashboardModel.stop() }
+            val toggleHud: () -> Unit = {
+                if (dashboardModel.toggleHud()) {
+                    try {
+                        startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:$packageName")))
+                    } catch (error: Exception) {
+                        dashboardModel.reportIssue(
+                            "Overlay permission screen unavailable: " + error.javaClass.simpleName
+                        )
+                    }
                 }
             }
-            val refreshKey = (state as? RecorderStatus.Finished)?.sessionId ?: 0L
+            val refreshKey = (state.status as? RecorderStatus.Finished)?.sessionId ?: 0L
             HeimdallTheme {
                 HeimdallShell(
                     dashboard = { openBlade, openTab ->
                         BifrostDashboard(
-                            status = state,
-                            issue = permissionProblem,
-                            hudEnabled = hudEnabled,
-                            overlayPermission = overlayAllowed,
+                            status = state.status,
+                            issue = state.issue,
+                            hudEnabled = state.hudEnabled,
+                            overlayPermission = state.overlayPermission,
+                            commandPending = state.commandPending,
                             onStart = start,
                             onStop = stop,
                             onToggleHud = toggleHud,
@@ -130,10 +108,10 @@ class MainActivity : ComponentActivity() {
                     },
                     sessions = { BifrostSessionsScreen(refreshKey) },
                     compare = { BifrostCompareScreen(refreshKey) },
-                    bladeContent = { blade, closeBlade, openTab ->
+                    bladeContent = { blade, _, openTab ->
                         when (blade) {
                             BifrostBlade.SETUP -> DukoTagEditor(
-                                sessionId = (state as? RecorderStatus.Recording)?.sessionId
+                                sessionId = (state.status as? RecorderStatus.Recording)?.sessionId
                             )
                             BifrostBlade.HUD_STUDIO -> HudStudioPanel()
                             BifrostBlade.RUN_PICKER -> BifrostRunPicker(
@@ -148,12 +126,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun requestService(action: String, failed: (String) -> Unit) {
-        try {
-            startForegroundService(Intent(this, HeimdallRecorderService::class.java)
-                .setAction(action))
-        } catch (error: Exception) {
-            failed("Recorder request refused by Android: " + error.javaClass.simpleName)
+    override fun onResume() {
+        super.onResume()
+        if (::dashboardModel.isInitialized) {
+            dashboardModel.onOverlayPermissionChanged(Settings.canDrawOverlays(this))
         }
     }
 }
