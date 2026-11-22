@@ -11,6 +11,7 @@ data class TestProfilePreview(
     val title: String = "No test profile configured",
     val details: String = "Use Setup to declare game, driver and device conditions.",
     val userDeclared: Boolean = false,
+    val nextOnly: Boolean = false,
 )
 
 class TestProfileRepository(context: Context) :
@@ -47,6 +48,7 @@ class TestProfileRepository(context: Context) :
             title = name,
             details = tags.joinToString(" · ").ifBlank { "No driver / mode / fan declared" },
             userDeclared = true,
+            nextOnly = store.isNextOnly(),
         )
     }
 }
