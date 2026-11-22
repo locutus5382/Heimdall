@@ -29,12 +29,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.nativeKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
@@ -56,24 +54,26 @@ fun HeimdallShell(
     BackHandler(enabled = nav.blade != null) {
         nav = nav.apply(BifrostAction.CLOSE_BLADE)
     }
+    // Controller shortcuts are deliberately scoped to the focusable top navigation bar.
+    // A focused TextField inside a supplied dashboard/session/blade slot is NOT its
+    // descendant, so its X/Y/L1/R1/B events never bubble into this handler.
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize().background(BifrostColors.Midnight)
-            .onPreviewKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                // Future MainActivity integration must pass editor focus explicitly;
-                // do not consume keys from text fields.
-                val action = controllerAction(event.nativeKeyEvent.keyCode, false)
-                    ?: return@onPreviewKeyEvent false
-                if (action == BifrostAction.CLOSE_BLADE && nav.blade == null)
-                    return@onPreviewKeyEvent false
-                nav = nav.apply(action)
-                true
-            }
     ) {
         val wide = maxWidth >= 720.dp
         Column(Modifier.fillMaxSize()) {
             Row(
                 modifier = Modifier.fillMaxWidth().background(BifrostColors.Editorial)
+                    .onKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                        val action = controllerAction(event.nativeKeyEvent.keyCode, false)
+                            ?: return@onKeyEvent false
+                        if (action == BifrostAction.CLOSE_BLADE && nav.blade == null)
+                            return@onKeyEvent false
+                        nav = nav.apply(action)
+                        true
+                    }
+                    .focusable()
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
