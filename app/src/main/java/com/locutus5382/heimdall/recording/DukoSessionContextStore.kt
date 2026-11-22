@@ -43,7 +43,9 @@ internal class DukoSessionContextStore(
             MeasurementOrigin.USER_DECLARED else MeasurementOrigin.UNKNOWN,
     ).sanitized()
 
-    fun saveDraft(context: DukoSessionContext) {
+    fun isNextOnly(): Boolean = prefs.getBoolean("one_session_only", false)
+
+    fun saveDraft(context: DukoSessionContext, nextOnly: Boolean = isNextOnly()) {
         val p = context.sanitized()
         prefs.edit()
             .putString("game", p.game)
@@ -56,6 +58,8 @@ internal class DukoSessionContextStore(
             .putString("tool", p.tuningTool)
             .putString("notes", p.notes)
             .putBoolean("declared", true)
+            .putBoolean("one_session_only", nextOnly)
+            .putLong("draft_revision", System.nanoTime())
             .apply()
     }
 
@@ -69,16 +73,37 @@ internal class DukoSessionContextStore(
         val contractVersion: Int,
         val capturedAtMs: Long,
         val profileJson: String,
+        val nextOnlyRevision: Long? = null,
     ) : RecordingPreparation
 
     fun prepareNewSession(): PreparedSessionMetadata {
         val draft = readDraft()
+        // Revision protects a newly edited draft from being consumed by an
+        // earlier START whose capability probe was still in flight.
+        val revision = if (isNextOnly() &&
+            prefs.getBoolean("declared", false))
+            prefs.getLong("draft_revision", 0L) else null
         val snapshot = DukoDeviceCapture.probe(app)
         return PreparedSessionMetadata(
             context = draft, contractVersion = snapshot.contractVersion,
             capturedAtMs = snapshot.capturedAtMs,
             profileJson = DukoDeviceCapture.encode(snapshot),
+            nextOnlyRevision = revision,
         )
+    }
+
+    /**
+     * Consume one-run tags ONLY after SQLite's START transaction commits.
+     * An edited draft has a different revision and must not be erased.
+     * This is crash-safe for the recorded snapshot, but preference clearing is
+     * best-effort across a process death between commit and clearing.
+     */
+    fun consumeNextOnlyAfterCommit(prepared: PreparedSessionMetadata) {
+        val revision = prepared.nextOnlyRevision ?: return
+        if (!isNextOnly() || !prefs.getBoolean("declared", false) ||
+            prefs.getLong("draft_revision", 0L) != revision) return
+        // This preferences file contains only next-session test conditions.
+        prefs.edit().clear().commit()
     }
 
     /**
