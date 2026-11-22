@@ -19,6 +19,8 @@ import com.locutus5382.heimdall.engine.HudProfile
 import com.locutus5382.heimdall.engine.HudRenderState
 import com.locutus5382.heimdall.engine.HudTelemetryHistory
 import com.locutus5382.heimdall.engine.ThermalIndicatorState
+import com.locutus5382.heimdall.engine.HudSafetyAlert
+import com.locutus5382.heimdall.engine.HudAlertSeverity
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -99,17 +101,19 @@ internal class HeimdallCanvasView(
         saving: Boolean = false,
         elapsedMs: Long = 0L,
         thermal: ThermalIndicatorState = ThermalIndicatorState.NOMINAL,
+        alert: HudSafetyAlert? = null,
     ) {
         val valid = profile.sanitized()
         val newState = HudRenderState.recording(
-            id, elapsedMs, sample, valid, history, thermal, saving
+            id, elapsedMs, sample, valid, history, thermal, saving, alert
         )
         val previous = this.state
         val relayout = this.profile.layout != valid.layout ||
             this.profile.scale != valid.scale ||
             previous.readouts.map { it.metric } != newState.readouts.map { it.metric } ||
             this.profile.metrics != valid.metrics ||
-            this.profile.locked != valid.locked
+            this.profile.locked != valid.locked ||
+            (previous.primaryAlert == null) != (newState.primaryAlert == null)
         this.profile = valid
         this.state = newState
         if (relayout || geometry == null) requestLayout()
@@ -310,6 +314,25 @@ internal class HeimdallCanvasView(
         if (open) canvas.drawPath(path, plot)
     }
 
+    private fun safetyBanner(canvas: Canvas, g: HudGeometry) {
+        val strip = g.alertStrip ?: return
+        val alert = state.primaryAlert ?: return
+        val severe = alert.severity == HudAlertSeverity.HIGH ||
+            alert.severity == HudAlertSeverity.CRITICAL
+        val ink = when (alert.severity) {
+            HudAlertSeverity.CRITICAL, HudAlertSeverity.HIGH -> coral
+            HudAlertSeverity.IMPORTANT, HudAlertSeverity.CAUTION -> caution
+            HudAlertSeverity.INFO -> signal
+        }
+        rect(canvas, strip, 6f, if (severe) Color.argb(220, 83, 35, 56)
+            else Color.argb(220, 25, 52, 83))
+        // Works when BAT TEMP is not a chosen metric; does not infer cause.
+        val text = if (profile.layout == HudLayout.SPINE)
+            alert.shortLabel.take(11) else alert.shortLabel
+        label(canvas, text, strip.left + 5f, strip.centerY() + 4f,
+            if (profile.layout == HudLayout.SPINE) 9f else 11f, ink)
+    }
+
     private fun controls(canvas: Canvas, g: HudGeometry) {
         rect(canvas, g.menu, 11f, Color.argb(175, 36, 59, 98))
         label(canvas, if (menuExpanded) "×" else "≡",
@@ -339,6 +362,7 @@ internal class HeimdallCanvasView(
             drawHeader(canvas, g)
             metrics(canvas, g)
             if (profile.layout == HudLayout.CARD) sparkline(canvas, g)
+            safetyBanner(canvas, g)
             controls(canvas, g)
             drawFailures = 0
         } catch (error: RuntimeException) {

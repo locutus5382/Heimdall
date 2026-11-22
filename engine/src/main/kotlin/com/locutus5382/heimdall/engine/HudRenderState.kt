@@ -25,6 +25,7 @@ data class HudRenderState(
     val cpuHistory: List<HudTelemetryHistory.Point>,
     val thermal: ThermalIndicatorState,
     val saving: Boolean = false,
+    val primaryAlert: HudSafetyAlert? = null,
 ) {
     companion object {
         fun recording(
@@ -35,6 +36,7 @@ data class HudRenderState(
             history: List<HudTelemetryHistory.Point>,
             thermal: ThermalIndicatorState = ThermalIndicatorState.NOMINAL,
             saving: Boolean = false,
+            alert: HudSafetyAlert? = null,
         ): HudRenderState {
             val seconds = (elapsedMillis.coerceAtLeast(0L) / 1000L)
             val time = if (seconds >= 3600L)
@@ -99,7 +101,7 @@ data class HudRenderState(
             }
             return HudRenderState(sessionId, time,
                 if (saving) "SAVING" else "● REC $time", fields,
-                history.takeLast(60), thermal, saving)
+                history.takeLast(60), thermal, saving, alert)
         }
     }
 }

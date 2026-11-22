@@ -12,7 +12,8 @@ import android.os.SystemClock
 import android.hardware.input.InputManager
 import com.locutus5382.heimdall.engine.HudLayout
 import com.locutus5382.heimdall.engine.HudDock
-import com.locutus5382.heimdall.engine.ThermalIndicatorState
+import com.locutus5382.heimdall.engine.HudSafetyAlertEngine
+import com.locutus5382.heimdall.engine.HudSafetyState
 import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
@@ -49,7 +50,8 @@ internal class HudOverlayController(private val app: Context) :
     private var unlockParams: WindowManager.LayoutParams? = null
     private var activeSession = -1L
     private var sessionObservedStartMs = 0L
-    private var hotSinceMs = 0L
+    private val safetyEngine = HudSafetyAlertEngine()
+    private var safetyState = HudSafetyState()
     private var stopSent = false
     private var lastFailure = 0L
     private var disposed = false
@@ -75,11 +77,14 @@ internal class HudOverlayController(private val app: Context) :
             activeSession = recording.sessionId
             sessionObservedStartMs =
                 recording.startedElapsedMs ?: SystemClock.elapsedRealtime()
-            hotSinceMs = 0L
+            safetyEngine.reset()
+            safetyState = HudSafetyState()
             stopSent = false
             history.clear()
         }
         history.add(recording.sessionId, recording.last)
+        // Sample-driven even when overlay is not visible; no extra polling.
+        safetyState = safetyEngine.observe(recording.sessionId, recording.last)
         if (!store.enabled() || !Settings.canDrawOverlays(app)) {
             hideWindow()
             return
@@ -171,32 +176,12 @@ internal class HudOverlayController(private val app: Context) :
         val recording = latest as? RecorderStatus.Recording ?: return
         val config = store.read()
         val v = view ?: return
-        val t = recording.last?.batteryTemperatureC
         val now = SystemClock.elapsedRealtime()
-        val thermal = when {
-            t == null || !t.isFinite() -> {
-                hotSinceMs = 0L
-                ThermalIndicatorState.NOMINAL
-            }
-            t > 42.0 -> {
-                if (hotSinceMs == 0L) hotSinceMs = now
-                if (now - hotSinceMs >= 15_000L)
-                    ThermalIndicatorState.SUSTAINED_HIGH_BATTERY_TEMP
-                else ThermalIndicatorState.ELEVATED_TEMP
-            }
-            t >= 38.0 -> {
-                hotSinceMs = 0L
-                ThermalIndicatorState.ELEVATED_TEMP
-            }
-            else -> {
-                hotSinceMs = 0L
-                ThermalIndicatorState.NOMINAL
-            }
-        }
         v.update(config, recording.sessionId,
             recording.last, history.snapshot(), saving = stopSent,
             elapsedMs = now - sessionObservedStartMs,
-            thermal = thermal)
+            thermal = safetyState.batteryIndicator,
+            alert = safetyState.primary)
         val originalX = params?.x
         val originalY = params?.y
         alignDock(config)
@@ -466,7 +451,8 @@ internal class HudOverlayController(private val app: Context) :
         stopSent = false
         activeSession = -1L
         sessionObservedStartMs = 0L
-        hotSinceMs = 0L
+        safetyEngine.reset()
+        safetyState = HudSafetyState()
         history.clear()
     }
 
