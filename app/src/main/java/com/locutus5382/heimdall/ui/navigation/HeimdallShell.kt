@@ -43,7 +43,7 @@ import com.locutus5382.heimdall.ui.theme.BifrostColors
 /**
  * Bifrost's presentation-only navigation frame. Existing recorder and DUKO
  * composables are supplied as slots, never duplicated or reimplemented.
- * Do not attach to MainActivity until real callbacks and permission flow are wired.
+ * MainActivity supplies real recorder callbacks and permission flow.
  */
 @Composable
 fun HeimdallShell(
@@ -100,6 +100,24 @@ fun HeimdallShell(
                             .padding(horizontal = 10.dp, vertical = 12.dp),
                         color = if (selected) BifrostColors.Signal else BifrostColors.Muted,
                         fontSize = 13.sp,
+                    )
+                }
+            }
+            // Visible touch/keyboard route to diagnostics. Controller shortcuts
+            // remain scoped to the navigation row and never capture text editors.
+            if (nav.tab == BifrostTab.DASHBOARD) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().background(BifrostColors.Editorial)
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    Text(
+                        "DIAGNOSTICS",
+                        color = BifrostColors.Signal,
+                        fontSize = 13.sp,
+                        modifier = Modifier.heightIn(min = 48.dp)
+                            .clickable { nav = nav.copy(blade = BifrostBlade.DIAGNOSTICS) }
+                            .padding(horizontal = 14.dp, vertical = 14.dp),
                     )
                 }
             }
