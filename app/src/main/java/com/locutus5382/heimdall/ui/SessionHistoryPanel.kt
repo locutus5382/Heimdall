@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.locutus5382.heimdall.engine.duko.ClockResidencyResult
 import com.locutus5382.heimdall.engine.duko.DukoMetric
 import com.locutus5382.heimdall.engine.duko.DukoFrequencyCapAssessment
 import com.locutus5382.heimdall.engine.duko.DukoFrequencyCapState
@@ -51,6 +52,35 @@ internal fun mayPublishSessionAnalysis(requestGeneration: Long, currentGeneratio
 
 private fun fmt(value: Double?) =
     value?.let { String.format(Locale.US, "%.1f", it) } ?: "—"
+
+/**
+ * Display-only projection of recorded, evidence-qualified GPU clock residency.
+ * Bands are absolute MHz; percentages are of the requested window, NOT GPU load.
+ * No extrapolation into unmeasured intervals.
+ */
+internal fun gpuResidencyLines(result: ClockResidencyResult): List<String> {
+    val duration = result.window.durationMs
+    if (duration <= 0L) return listOf("GPU clock residency unavailable")
+    val covered = 100.0 * result.coveredMs / duration
+    val unknown = 100.0 * result.unknownMs / duration
+    val lines = mutableListOf(
+        "Recorded window coverage ${String.format(Locale.US, "%.0f", covered)}% · " +
+            "Unmeasured ${String.format(Locale.US, "%.0f", unknown)}% · ${result.evidence.name}",
+        "Qualified sampled clock changes: ${result.transitions} · " +
+            "Largest rise ${result.largestRiseMHz?.let { "$it MHz" } ?: "—"} · " +
+            "Largest drop ${result.largestDropMHz?.let { "$it MHz" } ?: "—"}"
+    )
+    result.bandDurationMs.forEachIndexed { index, milliseconds ->
+        if (milliseconds > 0L) {
+            val label = if (index == result.bandUpperMHz.size)
+                "> ${result.bandUpperMHz.last()} MHz"
+            else if (index == 0) "≤ ${result.bandUpperMHz[0]} MHz"
+            else "${result.bandUpperMHz[index - 1] + 1}–${result.bandUpperMHz[index]} MHz"
+            lines += "$label: ${String.format(Locale.US, "%.0f", milliseconds * 100.0 / duration)}% of window"
+        }
+    }
+    return lines
+}
 
 @Composable
 fun SessionHistoryPanel(refreshKey: Long) {
@@ -268,6 +298,17 @@ fun SessionHistoryPanel(refreshKey: Long) {
                                         energy.warnings.filterNot {
                                             it == "BATTERY_TERMINAL_POWER_NOT_GAME_OR_WALL_POWER"
                                         }.joinToString(", "),
+                                    color = Subtle
+                                )
+                            }
+                            duko.gpuClockResidency?.let { residency ->
+                                Text("DUKO GPU CLOCK RESIDENCY · SAMPLED", color = Amber)
+                                gpuResidencyLines(residency).forEach { line ->
+                                    Text(line, color = Ink)
+                                }
+                                Text(
+                                    "Sampled MHz bands are not GPU utilization, FPS, " +
+                                        "throttling evidence or a performance ranking.",
                                     color = Subtle
                                 )
                             }
