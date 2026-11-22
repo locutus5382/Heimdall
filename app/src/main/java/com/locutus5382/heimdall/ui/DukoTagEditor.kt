@@ -86,6 +86,9 @@ internal fun DukoTagEditor(sessionId: Long? = null) {
     val store = remember(app) { DukoSessionContextStore(app) }
     val scope = rememberCoroutineScope()
     var tags by remember(sessionId) { mutableStateOf(store.readDraft()) }
+    var nextOnly by remember(sessionId) {
+        mutableStateOf(sessionId == null && store.isNextOnly())
+    }
     var message by remember(sessionId) { mutableStateOf<String?>(null) }
     var loading by remember(sessionId) { mutableStateOf(sessionId != null) }
     LaunchedEffect(sessionId) {
@@ -122,6 +125,20 @@ internal fun DukoTagEditor(sessionId: Long? = null) {
             color = DukoMuted
         )
         if (loading) Text("Loading session conditions…", color = DukoMuted)
+        if (sessionId == null) {
+            Text("APPLIES TO", color = DukoMuted)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = !nextOnly, onClick = { nextOnly = false },
+                    label = { Text("REUSABLE PRESET") })
+                FilterChip(selected = nextOnly, onClick = { nextOnly = true },
+                    label = { Text("NEXT SESSION ONLY") })
+            }
+            Text(if (nextOnly)
+                "Settings are cleared after a successfully committed new session. "
+                    + "Confirm their capture in the session details."
+                else "These labels will carry forward; confirm each run before recording.",
+                color = DukoMuted)
+        }
         OutlinedTextField(tags.game, { declared(tags.copy(game = it)) },
             label = { Text("Game / workload") }, singleLine = true,
             modifier = Modifier.fillMaxWidth())
@@ -220,8 +237,9 @@ internal fun DukoTagEditor(sessionId: Long? = null) {
                 val saved = tags.sanitized().copy(
                     origin = MeasurementOrigin.USER_DECLARED)
                 if (sessionId == null) {
-                    store.saveDraft(saved)
-                    message = "Saved as the next recording's test profile."
+                    store.saveDraft(saved, nextOnly)
+                    message = if (nextOnly) "Saved for the next recording only."
+                        else "Saved as a reusable test profile."
                 } else {
                     scope.launch {
                         try {
