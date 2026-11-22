@@ -156,9 +156,11 @@ fun BifrostDashboard(
                 Text(testProfile.title, color = BifrostColors.Ice,
                     fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 Text(testProfile.details, color = BifrostColors.Muted, fontSize = 12.sp)
-                Text(if (testProfile.userDeclared)
-                    "User-declared, reusable conditions · confirm before each run"
-                    else "Unknown settings are never inferred from the device",
+                Text(if (!testProfile.userDeclared)
+                    "Unknown settings are never inferred from the device"
+                    else if (testProfile.nextOnly)
+                    "User-declared · next recording only · verify after START"
+                    else "User-declared, reusable conditions · confirm before each run",
                     color = BifrostColors.Amber, fontSize = 11.sp)
             }
 
