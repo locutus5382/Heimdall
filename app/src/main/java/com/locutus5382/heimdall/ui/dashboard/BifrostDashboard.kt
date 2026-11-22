@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.locutus5382.heimdall.TestProfilePreview
 import com.locutus5382.heimdall.engine.DeviceSample
 import com.locutus5382.heimdall.engine.RecorderStatus
 import com.locutus5382.heimdall.ui.theme.BifrostColors
@@ -49,6 +50,7 @@ fun BifrostDashboard(
     hudEnabled: Boolean,
     overlayPermission: Boolean,
     commandPending: Boolean = false,
+    testProfile: TestProfilePreview = TestProfilePreview(),
     onStart: () -> Unit,
     onStop: () -> Unit,
     onToggleHud: () -> Unit,
@@ -140,19 +142,38 @@ fun BifrostDashboard(
             }
 
             Column(
+                Modifier.fillMaxWidth()
+                    .background(BifrostColors.Editorial, RoundedCornerShape(14.dp))
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("NEXT TEST CONDITIONS", color = BifrostColors.Muted,
+                        fontWeight = FontWeight.Bold, fontSize = 11.sp,
+                        modifier = Modifier.weight(1f))
+                    OutlinedButton(onClick = onSetup) { Text("SETUP") }
+                }
+                Text(testProfile.title, color = BifrostColors.Ice,
+                    fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                Text(testProfile.details, color = BifrostColors.Muted, fontSize = 12.sp)
+                Text(if (testProfile.userDeclared)
+                    "User-declared, reusable conditions · confirm before each run"
+                    else "Unknown settings are never inferred from the device",
+                    color = BifrostColors.Amber, fontSize = 11.sp)
+            }
+
+            Column(
                 Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
                 Text("QUICK ACCESS", color = BifrostColors.Muted, fontSize = 11.sp,
                     letterSpacing = 1.3.sp)
                 if (wide) {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        QuickAccess("SETUP", "Game, driver, fan", onSetup, Modifier.weight(1f))
-                        QuickAccess("SESSIONS", "Saved runs & DUKO", onSessions, Modifier.weight(1f))
+                         QuickAccess("SESSIONS", "Saved runs & DUKO", onSessions, Modifier.weight(1f))
                         QuickAccess("DIAGNOSTICS", "Device capabilities", onDiagnostics, Modifier.weight(1f))
                     }
                 } else {
-                    QuickAccess("SETUP", "Game, driver, fan", onSetup, Modifier.fillMaxWidth())
-                    QuickAccess("SESSIONS", "Saved runs & DUKO", onSessions, Modifier.fillMaxWidth())
+                     QuickAccess("SESSIONS", "Saved runs & DUKO", onSessions, Modifier.fillMaxWidth())
                     QuickAccess("DIAGNOSTICS", "Device capabilities", onDiagnostics, Modifier.fillMaxWidth())
                 }
             }
