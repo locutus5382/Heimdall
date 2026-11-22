@@ -96,6 +96,7 @@ class MainActivity : ComponentActivity() {
                             hudEnabled = state.hudEnabled,
                             overlayPermission = state.overlayPermission,
                             commandPending = state.commandPending,
+                            testProfile = state.testProfile,
                             onStart = start,
                             onStop = stop,
                             onToggleHud = toggleHud,
