@@ -30,7 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.input.key.nativeKeyEvent
+import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.unit.dp
@@ -66,7 +66,7 @@ fun HeimdallShell(
                 modifier = Modifier.fillMaxWidth().background(BifrostColors.Editorial)
                     .onKeyEvent { event ->
                         if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
-                        val action = controllerAction(event.nativeKeyEvent.keyCode, false)
+                        val action = controllerAction(event.key.keyCode.toInt(), false)
                             ?: return@onKeyEvent false
                         if (action == BifrostAction.CLOSE_BLADE && nav.blade == null)
                             return@onKeyEvent false
