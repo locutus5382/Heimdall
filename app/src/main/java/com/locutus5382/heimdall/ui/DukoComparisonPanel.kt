@@ -17,6 +17,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -94,15 +95,15 @@ internal fun customAbWindow(bounds: DukoWindow, startSeconds: String, endSeconds
 internal fun DukoComparisonPanel(sessions: List<SavedSession>) {
     val context = LocalContext.current
     val archive = remember(context) { SessionArchive(context) }
-    var a by remember { mutableStateOf<Long?>(null) }
-    var b by remember { mutableStateOf<Long?>(null) }
+    var a by rememberSaveable { mutableStateOf<Long?>(null) }
+    var b by rememberSaveable { mutableStateOf<Long?>(null) }
     var request by remember { mutableStateOf(0) }
-    var presetA by remember { mutableStateOf(AbWindowPreset.FULL) }
-    var presetB by remember { mutableStateOf(AbWindowPreset.FULL) }
-    var startA by remember { mutableStateOf("0") }
-    var endA by remember { mutableStateOf("") }
-    var startB by remember { mutableStateOf("0") }
-    var endB by remember { mutableStateOf("") }
+    var presetA by rememberSaveable { mutableStateOf(AbWindowPreset.FULL) }
+    var presetB by rememberSaveable { mutableStateOf(AbWindowPreset.FULL) }
+    var startA by rememberSaveable { mutableStateOf("0") }
+    var endA by rememberSaveable { mutableStateOf("") }
+    var startB by rememberSaveable { mutableStateOf("0") }
+    var endB by rememberSaveable { mutableStateOf("") }
     var selectedWindows by remember { mutableStateOf<Pair<DukoWindow, DukoWindow>?>(null) }
     var report by remember { mutableStateOf<DukoComparisonReport?>(null) }
     var busy by remember { mutableStateOf(false) }
