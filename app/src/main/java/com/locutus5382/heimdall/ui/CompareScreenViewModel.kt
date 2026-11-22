@@ -19,16 +19,23 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+internal interface ComparisonDataSource {
+    suspend fun recent(): List<SavedSession>
+    suspend fun bounds(id: Long): DukoWindow?
+    suspend fun compare(a: Long, b: Long, wa: DukoWindow, wb: DukoWindow): DukoComparisonReport?
+    suspend fun write(uri: Uri, payload: String)
+}
+
 /** A/B is descriptive telemetry evidence, not FPS or an inferred cause. */
-internal class ComparisonRepository(context: Context) {
+internal class ComparisonRepository(context: Context) : ComparisonDataSource {
     private val app = context.applicationContext
     private val archive = SessionArchive(app)
-    suspend fun recent() = archive.recent()
-    suspend fun bounds(id: Long) = archive.dukoMonotonicBounds(id)
-    suspend fun compare(a: Long, b: Long, wa: DukoWindow, wb: DukoWindow) =
+    override suspend fun recent(): List<SavedSession> = archive.recent()
+    override suspend fun bounds(id: Long): DukoWindow? = archive.dukoMonotonicBounds(id)
+    override suspend fun compare(a: Long, b: Long, wa: DukoWindow, wb: DukoWindow): DukoComparisonReport? =
         archive.dukoCompare(a, b, wa, wb)
 
-    suspend fun write(uri: Uri, payload: String) = withContext(Dispatchers.IO) {
+    override suspend fun write(uri: Uri, payload: String) = withContext(Dispatchers.IO) {
         app.contentResolver.openOutputStream(uri, "wt")?.use { output ->
             output.write(payload.toByteArray(Charsets.UTF_8))
             output.flush()
@@ -62,7 +69,7 @@ internal data class CompareUiState(
 }
 
 /** Activity-scoped state survives tab switches and configuration recreation. */
-internal class CompareScreenViewModel(private val repo: ComparisonRepository) : ViewModel() {
+internal class CompareScreenViewModel(private val repo: ComparisonDataSource) : ViewModel() {
     private val mutable = MutableStateFlow(CompareUiState())
     val ui: StateFlow<CompareUiState> = mutable
     private var loaded = false
@@ -219,7 +226,7 @@ internal class CompareScreenViewModel(private val repo: ComparisonRepository) : 
         }
     }
 
-    class Factory(private val repository: ComparisonRepository) : ViewModelProvider.Factory {
+    class Factory(private val repository: ComparisonDataSource) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             require(modelClass.isAssignableFrom(CompareScreenViewModel::class.java))
