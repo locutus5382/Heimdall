@@ -8,10 +8,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.activity.compose.setContent
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import com.locutus5382.heimdall.ui.MainActivity
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -27,38 +25,31 @@ import org.junit.runner.RunWith
  * Regression for PR #53 P1: the gamepad handler must not be an ancestor of
  * editable content. The editor receives gamepad input without changing tabs
  * or opening Setup/HUD blades. A focused navigation header still owns shortcuts.
- * Launch registered MainActivity and replace its composition through the
- * Activity's own setContent API. Never call ComposeTestRule.setContent on an
- * Activity which already installed content in onCreate.
+ * Launch an isolated, registered, empty test Activity. ComposeTestRule owns its
+ * only composition, avoiding MainActivity's existing composition and ABI mismatch.
  */
 @RunWith(AndroidJUnit4::class)
 class BifrostControllerFocusAndroidTest {
-    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    @get:Rule val compose = createAndroidComposeRule<BifrostTestActivity>()
 
     @Test fun editorFocusDoesNotTriggerGlobalGamepadShortcuts() {
         var edited by mutableStateOf("Turnip")
-        // Activity.setContent installs a ComposeView with the Activity's lifecycle
-        // owners; ComposeTestRule.setContent would throw on an already-composed
-        // MainActivity. Unlike setContentView(ComposeView(...)), this follows the
-        // standard activity-compose test hierarchy registration path.
-        compose.runOnUiThread {
-            compose.activity.setContent {
-                HeimdallShell(
-                    dashboard = {
-                        Column {
-                            Text("Dashboard content", Modifier.testTag("dashboard-content"))
-                            BasicTextField(
-                                value = edited,
-                                onValueChange = { edited = it },
-                                modifier = Modifier.testTag("driver-editor"),
-                            )
-                        }
-                    },
-                    sessions = { Text("Sessions content", Modifier.testTag("sessions-content")) },
-                    compare = { Text("Compare content", Modifier.testTag("compare-content")) },
-                    bladeContent = { Text("Blade content", Modifier.testTag("blade-content")) },
-                )
-            }
+        compose.setContent {
+            HeimdallShell(
+                dashboard = {
+                    Column {
+                        Text("Dashboard content", Modifier.testTag("dashboard-content"))
+                        BasicTextField(
+                            value = edited,
+                            onValueChange = { edited = it },
+                            modifier = Modifier.testTag("driver-editor"),
+                        )
+                    }
+                },
+                sessions = { Text("Sessions content", Modifier.testTag("sessions-content")) },
+                compare = { Text("Compare content", Modifier.testTag("compare-content")) },
+                bladeContent = { Text("Blade content", Modifier.testTag("blade-content")) },
+            )
         }
         compose.waitForIdle()
         compose.onNodeWithTag("driver-editor").performClick()
