@@ -64,7 +64,7 @@ internal class LocalRecordingStore(
             ?: error("INVALID_SESSION_PREPARATION")
         val database = db.writableDatabase
         database.beginTransaction()
-        try {
+        val committedId = try {
             val existing = database.rawQuery(
                 "SELECT id FROM sessions WHERE status='RECORDING' LIMIT 1", null
             ).use { it.moveToFirst() }
@@ -91,6 +91,9 @@ internal class LocalRecordingStore(
         } finally {
             database.endTransaction()
         }
+        // Never consume a one-run test profile if START rolled back.
+        dukoContextStore.consumeNextOnlyAfterCommit(preparedContext)
+        committedId
     }
 
     override suspend fun sessionStartElapsedMs(sessionId: Long): Long? =
