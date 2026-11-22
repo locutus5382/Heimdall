@@ -19,14 +19,20 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+internal interface SessionScreenDataSource {
+    suspend fun recent(): List<SavedSession>
+    suspend fun details(id: Long): SessionDetail
+    suspend fun exportCsv(id: Long, uri: Uri): Long
+}
+
 /** Android IO is delegated to SessionArchive, which switches to Dispatchers.IO. */
-internal class SessionScreenRepository(context: Context) {
+internal class SessionScreenRepository(context: Context) : SessionScreenDataSource {
     private val app = context.applicationContext
     private val archive = SessionArchive(app)
     private val tags = DukoSessionContextStore(app)
 
-    suspend fun recent(): List<SavedSession> = archive.recent()
-    suspend fun details(id: Long): SessionDetail {
+    override suspend fun recent(): List<SavedSession> = archive.recent()
+    override suspend fun details(id: Long): SessionDetail {
         val overview = archive.overview(id)
         val report = archive.dukoFoundation(id)
         val cap = runCatching {
@@ -34,13 +40,13 @@ internal class SessionScreenRepository(context: Context) {
         }.getOrNull()
         return SessionDetail(overview, report, cap)
     }
-    suspend fun exportCsv(id: Long, uri: Uri): Long {
-        // CreateDocument is SAF; opening the stream is best-effort and the
-        // provider may refuse writes even after a user selects a destination.
-        val stream = app.contentResolver.openOutputStream(uri, "wt")
-            ?: throw java.io.IOException("DOCUMENT_PROVIDER_REFUSED_WRITE")
-        return archive.exportCsv(id, stream)
-    }
+    override suspend fun exportCsv(id: Long, uri: Uri): Long =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            // Provider open can block too; do not perform any SAF operations on Main.
+            val stream = app.contentResolver.openOutputStream(uri, "wt")
+                ?: throw java.io.IOException("DOCUMENT_PROVIDER_REFUSED_WRITE")
+            archive.exportCsv(id, stream)
+        }
 }
 internal data class SessionDetail(
     val overview: SessionOverview,
@@ -62,7 +68,7 @@ internal data class SessionsUiState(
  * Activity-scoped so a tab change or device rotation cannot detach an analysis
  * result from the session that owns it. New requests cancel old work.
  */
-internal class SessionScreenViewModel(private val repo: SessionScreenRepository) : ViewModel() {
+internal class SessionScreenViewModel(private val repo: SessionScreenDataSource) : ViewModel() {
     private val mutable = MutableStateFlow(SessionsUiState())
     val ui: StateFlow<SessionsUiState> = mutable
     private var loaded = false
@@ -154,7 +160,7 @@ internal class SessionScreenViewModel(private val repo: SessionScreenRepository)
         }
     }
 
-    class Factory(private val repository: SessionScreenRepository) : ViewModelProvider.Factory {
+    class Factory(private val repository: SessionScreenDataSource) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             require(modelClass.isAssignableFrom(SessionScreenViewModel::class.java))
