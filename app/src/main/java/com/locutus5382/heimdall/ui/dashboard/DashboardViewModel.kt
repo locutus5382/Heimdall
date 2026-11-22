@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.locutus5382.heimdall.HeimdallAppGraph
 import com.locutus5382.heimdall.HudPreferenceRepository
 import com.locutus5382.heimdall.RecorderRuntime
+import com.locutus5382.heimdall.TestProfileRepository
+import com.locutus5382.heimdall.TestProfilePreview
 import com.locutus5382.heimdall.engine.RecorderStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,6 +28,7 @@ data class DashboardUiState(
     val overlayPermission: Boolean = false,
     val commandPending: Boolean = false,
     val issue: String? = null,
+    val testProfile: TestProfilePreview = TestProfilePreview(),
 )
 
 private enum class PendingCommand { START, STOP }
@@ -33,6 +36,7 @@ private enum class PendingCommand { START, STOP }
 class DashboardViewModel(
     private val runtime: RecorderRuntime,
     private val hud: HudPreferenceRepository,
+    private val profiles: TestProfileRepository,
 ) : ViewModel() {
     private val overlay = MutableStateFlow(false)
     private val issue = MutableStateFlow<String?>(null)
@@ -43,9 +47,12 @@ class DashboardViewModel(
     ) { status, hudEnabled, overlayPermission, currentIssue, command ->
         DashboardUiState(status, hudEnabled, overlayPermission,
             commandPending = command != null, issue = currentIssue)
+    }.combine(profiles.preview) { current, preview ->
+        current.copy(testProfile = preview)
     }.stateIn(
         viewModelScope, SharingStarted.Eagerly,
-        DashboardUiState(status = runtime.status.value, hudEnabled = hud.enabled.value)
+        DashboardUiState(status = runtime.status.value, hudEnabled = hud.enabled.value,
+            testProfile = profiles.preview.value)
     )
 
     init {
@@ -131,7 +138,7 @@ class DashboardViewModel(
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             require(modelClass.isAssignableFrom(DashboardViewModel::class.java))
-            return DashboardViewModel(graph.recorder, graph.hudPreferences) as T
+            return DashboardViewModel(graph.recorder, graph.hudPreferences, graph.testProfiles) as T
         }
     }
 }
