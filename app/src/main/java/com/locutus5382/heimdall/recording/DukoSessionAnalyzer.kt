@@ -14,6 +14,8 @@ import com.locutus5382.heimdall.engine.duko.DukoConfidence
 import com.locutus5382.heimdall.engine.duko.DukoConfidenceReport
 import com.locutus5382.heimdall.engine.duko.DukoEnergyReport
 import com.locutus5382.heimdall.engine.duko.DukoThermalAccumulator
+import com.locutus5382.heimdall.engine.duko.ThermalStabilityAccumulator
+import com.locutus5382.heimdall.engine.duko.ThermalStabilityResult
 import com.locutus5382.heimdall.engine.duko.DukoThermalReport
 import com.locutus5382.heimdall.engine.duko.DukoMetric
 import com.locutus5382.heimdall.engine.duko.DukoMetricAnalysis
@@ -42,6 +44,7 @@ data class DukoFoundationReport(
     val capabilitySnapshotAvailable: Boolean,
     val confidence: DukoConfidenceReport,
     val gpuClockResidency: ClockResidencyResult? = null,
+    val thermalStability: Map<DukoMetric, ThermalStabilityResult> = emptyMap(),
     val analysisVersion: Int = 2,
 )
 
@@ -127,6 +130,14 @@ internal class DukoSessionAnalyzer(
                 DukoMetric.CPU_TEMPERATURE,
                 DukoMetric.GPU_TEMPERATURE
             ).associateWith { DukoThermalAccumulator(it, window, cadence) }
+            // Two non-overlapping 120-second phases require >=4 minutes.
+            // No extra query or polling; short windows remain unassessed.
+            val stabilityAccumulators = if (window.durationMs >= 240_000L)
+                listOf(DukoMetric.BATTERY_TEMPERATURE,
+                    DukoMetric.CPU_TEMPERATURE, DukoMetric.GPU_TEMPERATURE)
+                    .associateWith { ThermalStabilityAccumulator(it, window,
+                        expectedCadenceMs = cadence) }
+                else emptyMap()
             val batteryEnergy = DukoEnergyAccumulator(window, cadence)
             // Absolute MHz bands; no inference about GPU utilization or FPS.
             // Consumes the existing bounded historical cursor, never new polling.
@@ -217,6 +228,7 @@ internal class DukoSessionAnalyzer(
                         )
                         accumulators.getValue(metric).accept(observation)
                         thermalAccumulators[metric]?.accept(observation)
+                        stabilityAccumulators[metric]?.accept(observation)
                     }
                 }
             }
@@ -244,6 +256,7 @@ internal class DukoSessionAnalyzer(
                 // calibrated electrical instrument.
                 confidence = DukoConfidence.assess(integrity, energy, thermal),
                 gpuClockResidency = gpuResidency.result(),
+                thermalStability = stabilityAccumulators.mapValues { (_, a) -> a.result() },
             )
         }
 }
