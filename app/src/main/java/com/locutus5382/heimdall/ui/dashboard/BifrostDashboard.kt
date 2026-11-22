@@ -1,0 +1,295 @@
+package com.locutus5382.heimdall.ui.dashboard
+
+import android.os.SystemClock
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.locutus5382.heimdall.engine.DeviceSample
+import com.locutus5382.heimdall.engine.RecorderStatus
+import com.locutus5382.heimdall.ui.theme.BifrostColors
+import kotlinx.coroutines.delay
+import java.util.Locale
+
+/** The only Dashboard: real recorder controls and live evidence, never history panels. */
+@Composable
+fun BifrostDashboard(
+    status: RecorderStatus,
+    issue: String?,
+    hudEnabled: Boolean,
+    overlayPermission: Boolean,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
+    onToggleHud: () -> Unit,
+    onSetup: () -> Unit,
+    onHudStudio: () -> Unit,
+    onSessions: () -> Unit,
+    onDiagnostics: () -> Unit,
+) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val wide = maxWidth >= 680.dp
+        val recording = status as? RecorderStatus.Recording
+        val last = recording?.last
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                .padding(horizontal = if (wide) 24.dp else 14.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(15.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("YOUR HANDHELD · LIVE", color = BifrostColors.Signal,
+                        fontSize = 11.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold)
+                    Text("Overview", color = BifrostColors.Ice,
+                        fontSize = if (wide) 30.sp else 24.sp, fontWeight = FontWeight.SemiBold)
+                }
+                Box(Modifier.background(BifrostColors.Editorial, RoundedCornerShape(20.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    Text(if (recording != null) "● RECORDING" else "● LOCAL / OFFLINE",
+                        color = if (recording != null) BifrostColors.Signal else BifrostColors.Muted,
+                        fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            if (wide) {
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    RecorderCard(status, issue, onStart, onStop, Modifier.weight(1.1f))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("LIVE TELEMETRY", color = BifrostColors.Muted,
+                            fontSize = 11.sp, letterSpacing = 1.3.sp)
+                        MetricsGrid(last, true)
+                    }
+                }
+            } else {
+                RecorderCard(status, issue, onStart, onStop, Modifier.fillMaxWidth())
+                Text("LIVE TELEMETRY", color = BifrostColors.Muted,
+                    fontSize = 11.sp, letterSpacing = 1.3.sp)
+                MetricsGrid(last, false)
+            }
+
+            Column(
+                Modifier.fillMaxWidth().background(BifrostColors.Editorial, RoundedCornerShape(14.dp))
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(Modifier.weight(1f)) {
+                        Text("IN-GAME HUD", color = BifrostColors.Ice,
+                            fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        val detail = when {
+                            hudEnabled && overlayPermission -> "Enabled · uses the existing overlay"
+                            hudEnabled -> "Permission required · not yet active"
+                            else -> "Off · opt in to the in-game overlay"
+                        }
+                        Text(detail, color = if (hudEnabled && !overlayPermission)
+                            BifrostColors.Amber else BifrostColors.Muted, fontSize = 12.sp)
+                    }
+                    OutlinedButton(onClick = onToggleHud) {
+                        Text(if (hudEnabled) "TURN OFF" else "ENABLE", fontSize = 12.sp)
+                    }
+                }
+                OutlinedButton(onClick = onHudStudio, modifier = Modifier.fillMaxWidth()) {
+                    Text("HUD Studio · layout and placement")
+                }
+            }
+
+            Column(
+                Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(9.dp)
+            ) {
+                Text("QUICK ACCESS", color = BifrostColors.Muted, fontSize = 11.sp,
+                    letterSpacing = 1.3.sp)
+                if (wide) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        QuickAccess("SETUP", "Game, driver, fan", onSetup, Modifier.weight(1f))
+                        QuickAccess("SESSIONS", "Saved runs & DUKO", onSessions, Modifier.weight(1f))
+                        QuickAccess("DIAGNOSTICS", "Device capabilities", onDiagnostics, Modifier.weight(1f))
+                    }
+                } else {
+                    QuickAccess("SETUP", "Game, driver, fan", onSetup, Modifier.fillMaxWidth())
+                    QuickAccess("SESSIONS", "Saved runs & DUKO", onSessions, Modifier.fillMaxWidth())
+                    QuickAccess("DIAGNOSTICS", "Device capabilities", onDiagnostics, Modifier.fillMaxWidth())
+                }
+            }
+            Text("Unavailable measurements are shown as —, not zero. " +
+                "Telemetry describes the device, not rendered FPS or game performance.",
+                color = BifrostColors.Muted, fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+private fun RecorderCard(
+    status: RecorderStatus,
+    issue: String?,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
+    modifier: Modifier,
+) {
+    val recording = status as? RecorderStatus.Recording
+    val attention = status as? RecorderStatus.NeedsAttention
+    val sessionId = when (status) {
+        is RecorderStatus.Recording -> status.sessionId
+        is RecorderStatus.Stopping -> status.sessionId
+        is RecorderStatus.Saving -> status.sessionId
+        is RecorderStatus.Finished -> status.sessionId
+        is RecorderStatus.NeedsAttention -> status.sessionId
+        else -> null
+    }
+    val title = when (status) {
+        RecorderStatus.Idle -> "Ready to observe"
+        RecorderStatus.Preparing -> "Preparing"
+        is RecorderStatus.Recording -> "Recording session"
+        is RecorderStatus.Stopping -> "Stopping safely"
+        is RecorderStatus.Saving -> "Saving session"
+        is RecorderStatus.Finished -> if (status.reason == "INTERRUPTED")
+            "Recovered partial session" else "Session saved"
+        is RecorderStatus.NeedsAttention -> "Needs attention"
+    }
+    val subtitle = when (status) {
+        is RecorderStatus.Recording -> String.format(Locale.US, "%d saved samples",
+            status.persistedSamples)
+        is RecorderStatus.Finished -> String.format(Locale.US, "%d saved samples",
+            status.samples)
+        is RecorderStatus.NeedsAttention -> status.code
+        RecorderStatus.Preparing -> "Waiting for the recorder service"
+        is RecorderStatus.Stopping, is RecorderStatus.Saving ->
+            "The original session is being finalized"
+        else -> "Local recording · no root · no network"
+    }
+    val canStart = status is RecorderStatus.Idle || status is RecorderStatus.Finished ||
+        (attention != null && attention.sessionId == null)
+    val canStop = status is RecorderStatus.Recording ||
+        (attention?.sessionId ?: 0L) > 0L
+    val elapsed = recording?.let { RecordingDuration(it.startedElapsedMs) }
+    Column(modifier.background(BifrostColors.Editorial, RoundedCornerShape(18.dp))
+        .border(1.dp, BifrostColors.Cobalt, RoundedCornerShape(18.dp))
+        .padding(18.dp), verticalArrangement = Arrangement.spacedBy(15.dp)) {
+        Text("SESSION CONTROL", color = BifrostColors.Muted, fontSize = 11.sp,
+            letterSpacing = 1.3.sp, fontWeight = FontWeight.Bold)
+        Text(title, color = BifrostColors.Ice, fontSize = 26.sp,
+            fontWeight = FontWeight.Bold, maxLines = 2)
+        Text(subtitle, color = BifrostColors.Muted, fontSize = 13.sp)
+        if (recording != null) {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(elapsed ?: "TIME UNAVAILABLE", color = BifrostColors.Signal,
+                    fontSize = 34.sp, fontWeight = FontWeight.Medium)
+                Text("ELAPSED · MONOTONIC", color = BifrostColors.Muted, fontSize = 10.sp)
+            }
+        }
+        if (sessionId != null) Text("SESSION #" + sessionId,
+            color = BifrostColors.Amber, fontSize = 11.sp)
+        if (issue != null) Text(issue, color = BifrostColors.Coral, fontSize = 13.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Button(
+                onClick = onStart, enabled = canStart,
+                modifier = Modifier.weight(1f).height(52.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = BifrostColors.Signal,
+                    contentColor = BifrostColors.Midnight),
+                shape = RoundedCornerShape(10.dp)
+            ) { Text("START", fontWeight = FontWeight.Bold) }
+            OutlinedButton(onClick = onStop, enabled = canStop,
+                modifier = Modifier.weight(1f).height(52.dp),
+                shape = RoundedCornerShape(10.dp)) {
+                Text(if (attention?.sessionId != null) "RETRY STOP" else "STOP & SAVE",
+                    color = if (canStop) BifrostColors.Amber else BifrostColors.Muted,
+                    fontSize = 12.sp, maxLines = 1)
+            }
+        }
+        Text("Quick Settings can control this same session. " +
+            "A stopping/saving session cannot be started twice.",
+            color = BifrostColors.Muted, fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun RecordingDuration(startElapsedMs: Long?): String? {
+    if (startElapsedMs == null) return null
+    var now by remember(startElapsedMs) { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    LaunchedEffect(startElapsedMs) {
+        while (true) {
+            now = SystemClock.elapsedRealtime()
+            delay(1000L)
+        }
+    }
+    val seconds = (now - startElapsedMs).coerceAtLeast(0L) / 1000L
+    return String.format(Locale.US, "%02d:%02d:%02d",
+        seconds / 3600L, seconds / 60L % 60L, seconds % 60L)
+}
+
+@Composable
+private fun MetricsGrid(sample: DeviceSample?, wide: Boolean) {
+    val cells = listOf(
+        "CPU LOAD" to sample?.cpuLoadPercent?.let { String.format(Locale.US, "%.0f%%", it) },
+        "GPU CLOCK" to sample?.gpuClockMHz?.let { "$it MHz" },
+        "BATTERY" to sample?.batteryLevelPercent?.let { "$it%" },
+        "BAT. TEMP" to sample?.batteryTemperatureC?.let {
+            String.format(Locale.US, "%.1f°C", it)
+        },
+        "TOP CPU CLOCK" to sample?.cpuClockMHz?.let { "$it MHz" },
+        "AVAILABLE RAM" to sample?.availableMemoryMiB?.let { "$it MiB" },
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        cells.chunked(if (wide) 2 else 3).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { (label, value) ->
+                    Column(Modifier.weight(1f)
+                        .background(BifrostColors.Blade, RoundedCornerShape(11.dp))
+                        .padding(horizontal = 10.dp, vertical = 13.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(label, color = BifrostColors.Muted, fontSize = 10.sp,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(value ?: "—", color = BifrostColors.Ice,
+                            fontSize = if (wide) 19.sp else 15.sp,
+                            fontWeight = FontWeight.Bold, maxLines = 1,
+                            overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickAccess(
+    title: String, description: String, onClick: () -> Unit, modifier: Modifier
+) {
+    OutlinedButton(onClick = onClick, modifier = modifier.height(70.dp),
+        shape = RoundedCornerShape(12.dp)) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(title, color = BifrostColors.Signal, fontSize = 12.sp,
+                fontWeight = FontWeight.Bold)
+            Text(description, color = BifrostColors.Muted, fontSize = 10.sp,
+                maxLines = 1)
+        }
+    }
+}

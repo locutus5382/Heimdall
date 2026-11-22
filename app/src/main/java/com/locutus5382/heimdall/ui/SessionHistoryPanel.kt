@@ -102,7 +102,7 @@ internal fun thermalStabilityLines(result: ThermalStabilityResult): List<String>
 }
 
 @Composable
-fun SessionHistoryPanel(refreshKey: Long) {
+fun SessionHistoryPanel(refreshKey: Long, showComparison: Boolean = true) {
     val context = LocalContext.current
     val archive = remember(context) { SessionArchive(context) }
     val contextStore = remember(context) { DukoSessionContextStore(context) }
@@ -159,7 +159,7 @@ fun SessionHistoryPanel(refreshKey: Long) {
             "Your completed recordings will appear here.",
             color = Subtle
         )
-        if (history.size >= 2) DukoComparisonPanel(history)
+        if (showComparison && history.size >= 2) DukoComparisonPanel(history)
         history.forEach { session ->
             Column(
                 modifier = Modifier.fillMaxWidth()
