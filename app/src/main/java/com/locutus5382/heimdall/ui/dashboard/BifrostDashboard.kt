@@ -48,6 +48,7 @@ fun BifrostDashboard(
     issue: String?,
     hudEnabled: Boolean,
     overlayPermission: Boolean,
+    commandPending: Boolean = false,
     onStart: () -> Unit,
     onStop: () -> Unit,
     onToggleHud: () -> Unit,
@@ -74,15 +75,27 @@ fun BifrostDashboard(
                 }
                 Box(Modifier.background(BifrostColors.Editorial, RoundedCornerShape(20.dp))
                     .padding(horizontal = 12.dp, vertical = 8.dp)) {
-                    Text(if (recording != null) "● RECORDING" else "● LOCAL / OFFLINE",
-                        color = if (recording != null) BifrostColors.Signal else BifrostColors.Muted,
+                    val phase = when (status) {
+                        is RecorderStatus.Recording -> "● RECORDING"
+                        RecorderStatus.Preparing -> "● PREPARING"
+                        is RecorderStatus.Stopping, is RecorderStatus.Saving -> "● FINALIZING"
+                        is RecorderStatus.NeedsAttention -> "● ATTENTION"
+                        else -> "● LOCAL / OFFLINE"
+                    }
+                    Text(phase,
+                        color = when (status) {
+                            is RecorderStatus.Recording -> BifrostColors.Signal
+                            RecorderStatus.Preparing, is RecorderStatus.Stopping,
+                            is RecorderStatus.Saving, is RecorderStatus.NeedsAttention -> BifrostColors.Amber
+                            else -> BifrostColors.Muted
+                        },
                         fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
             }
 
             if (wide) {
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    RecorderCard(status, issue, onStart, onStop, Modifier.weight(1.1f))
+                    RecorderCard(status, issue, commandPending, onStart, onStop, Modifier.weight(1.1f))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("LIVE TELEMETRY", color = BifrostColors.Muted,
                             fontSize = 11.sp, letterSpacing = 1.3.sp)
@@ -90,7 +103,7 @@ fun BifrostDashboard(
                     }
                 }
             } else {
-                RecorderCard(status, issue, onStart, onStop, Modifier.fillMaxWidth())
+                RecorderCard(status, issue, commandPending, onStart, onStop, Modifier.fillMaxWidth())
                 Text("LIVE TELEMETRY", color = BifrostColors.Muted,
                     fontSize = 11.sp, letterSpacing = 1.3.sp)
                 MetricsGrid(last, false)
@@ -107,7 +120,10 @@ fun BifrostDashboard(
                         Text("IN-GAME HUD", color = BifrostColors.Ice,
                             fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                         val detail = when {
-                            hudEnabled && overlayPermission -> "Enabled · uses the existing overlay"
+                            hudEnabled && overlayPermission && recording != null ->
+                                "Enabled for recording · overlay controlled by recorder"
+                            hudEnabled && overlayPermission ->
+                                "Ready for next recording · overlay appears during capture"
                             hudEnabled -> "Permission required · not yet active"
                             else -> "Off · opt in to the in-game overlay"
                         }
@@ -151,6 +167,7 @@ fun BifrostDashboard(
 private fun RecorderCard(
     status: RecorderStatus,
     issue: String?,
+    commandPending: Boolean,
     onStart: () -> Unit,
     onStop: () -> Unit,
     modifier: Modifier,
@@ -180,16 +197,18 @@ private fun RecorderCard(
             status.persistedSamples)
         is RecorderStatus.Finished -> String.format(Locale.US, "%d saved samples",
             status.samples)
-        is RecorderStatus.NeedsAttention -> status.code
+        is RecorderStatus.NeedsAttention ->
+            "Recorder needs attention · original session requires review"
         RecorderStatus.Preparing -> "Waiting for the recorder service"
         is RecorderStatus.Stopping, is RecorderStatus.Saving ->
             "The original session is being finalized"
         else -> "Local recording · no root · no network"
     }
-    val canStart = status is RecorderStatus.Idle || status is RecorderStatus.Finished ||
-        (attention != null && attention.sessionId == null)
-    val canStop = status is RecorderStatus.Recording ||
-        (attention?.sessionId ?: 0L) > 0L
+    val canStart = !commandPending && (status is RecorderStatus.Idle ||
+        status is RecorderStatus.Finished ||
+        (attention != null && attention.sessionId == null))
+    val canStop = !commandPending && (status is RecorderStatus.Recording ||
+        (attention?.sessionId ?: 0L) > 0L)
     val elapsed = recording?.let { RecordingDuration(it.startedElapsedMs) }
     Column(modifier.background(BifrostColors.Editorial, RoundedCornerShape(18.dp))
         .border(1.dp, BifrostColors.Cobalt, RoundedCornerShape(18.dp))
@@ -209,6 +228,8 @@ private fun RecorderCard(
         if (sessionId != null) Text("SESSION #" + sessionId,
             color = BifrostColors.Amber, fontSize = 11.sp)
         if (issue != null) Text(issue, color = BifrostColors.Coral, fontSize = 13.sp)
+        if (commandPending) Text("Request dispatched · awaiting recorder state",
+            color = BifrostColors.Amber, fontSize = 12.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Button(
                 onClick = onStart, enabled = canStart,
