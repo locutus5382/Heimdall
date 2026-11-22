@@ -86,4 +86,31 @@ class HudSafetyAlertEngineTest {
         repeat(100) { assertEquals(first, e.observe(1L, sample(1_000L, 45.0))) }
         assertEquals(HudAlertCategory.BATTERY_WARM, first.primary?.category)
     }
+    @Test fun staleCriticalAlertIsNotShownWithoutFreshSample() {
+        val e = HudSafetyAlertEngine()
+        val critical = e.observe(7L, sample(10_000L, 44.0, thermal = 4))
+        assertEquals(HudAlertSeverity.CRITICAL, critical.primary?.severity)
+        assertEquals(critical, e.visibleStateAt(14_000L))
+        val stale = e.visibleStateAt(14_001L)
+        assertNull(stale.primary)
+        assertTrue(stale.batteryTemperatureUnknown)
+        // A redraw or missing sample cannot refresh a stale warning.
+        e.observe(7L, null)
+        assertNull(e.visibleStateAt(15_000L).primary)
+        // A real later observation can restore a qualified alert.
+        assertEquals(HudAlertCategory.ANDROID_THERMAL,
+            e.observe(7L, sample(16_000L, 44.0, thermal = 4)).primary?.category)
+    }
+
+    @Test fun clockDiscontinuityDoesNotExposeOldAlert() {
+        val e = HudSafetyAlertEngine()
+        e.observe(8L, sample(10_000L, 36.0, thermal = 3))
+        assertNull(e.visibleStateAt(9_999L).primary)
+        assertNull(e.visibleStateAt(20_000L).primary)
+        assertNull(e.visibleStateAt(20_000L).primary)
+        assertTrue(e.visibleStateAt(20_000L).batteryTemperatureUnknown)
+        assertNull(e.observe(9L, null).primary)
+        assertNull(e.visibleStateAt(20_000L).primary)
+    }
+
 }
