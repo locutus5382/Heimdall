@@ -91,7 +91,7 @@ class BifrostDashboardAndroidTest {
                 )
             }
         }
-        compose.onNodeWithText("Recording session").assertExists()
+        compose.onNodeWithText("Recording telemetry").assertExists()
         compose.onNodeWithText("63%").assertExists()
         compose.onNodeWithText("675 MHz").assertExists()
         compose.onNodeWithText("72%").assertExists()

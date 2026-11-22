@@ -168,7 +168,7 @@ private fun RecorderCard(
     val title = when (status) {
         RecorderStatus.Idle -> "Ready to observe"
         RecorderStatus.Preparing -> "Preparing"
-        is RecorderStatus.Recording -> "Recording session"
+        is RecorderStatus.Recording -> "Recording telemetry"
         is RecorderStatus.Stopping -> "Stopping safely"
         is RecorderStatus.Saving -> "Saving session"
         is RecorderStatus.Finished -> if (status.reason == "INTERRUPTED")
