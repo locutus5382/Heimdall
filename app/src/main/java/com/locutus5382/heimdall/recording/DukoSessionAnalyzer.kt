@@ -2,6 +2,10 @@ package com.locutus5382.heimdall.recording
 
 import android.content.Context
 import android.os.BatteryManager
+import com.locutus5382.heimdall.engine.duko.ClockResidencyAccumulator
+import com.locutus5382.heimdall.engine.duko.ClockResidencyResult
+import com.locutus5382.heimdall.engine.duko.ClockResidencySample
+import com.locutus5382.heimdall.engine.duko.ReadingValidity
 import com.locutus5382.heimdall.engine.duko.DukoEvidence
 import com.locutus5382.heimdall.engine.duko.DukoBatteryPoint
 import com.locutus5382.heimdall.engine.duko.DukoBatteryStatus
@@ -37,6 +41,7 @@ data class DukoFoundationReport(
     val thermal: Map<DukoMetric, DukoThermalReport>,
     val capabilitySnapshotAvailable: Boolean,
     val confidence: DukoConfidenceReport,
+    val gpuClockResidency: ClockResidencyResult? = null,
     val analysisVersion: Int = 2,
 )
 
@@ -123,6 +128,11 @@ internal class DukoSessionAnalyzer(
                 DukoMetric.GPU_TEMPERATURE
             ).associateWith { DukoThermalAccumulator(it, window, cadence) }
             val batteryEnergy = DukoEnergyAccumulator(window, cadence)
+            // Absolute MHz bands; no inference about GPU utilization or FPS.
+            // Consumes the existing bounded historical cursor, never new polling.
+            val gpuResidency = ClockResidencyAccumulator(
+                window, listOf(200L, 400L, 600L, 800L, 1000L, 1200L), cadence
+            )
             val selectedSql = if (selectedWindow == null) "" else
                 " AND elapsed_ms>=? AND elapsed_ms<=?"
             // For a narrow selection the old (session_id,id) index scans the
@@ -150,6 +160,17 @@ internal class DukoSessionAnalyzer(
                     if (c.isNull(0)) continue // Legacy row, no valid elapsed clock
                     val t = c.getLong(0)
                     if (t < 0) continue
+                    val gpuMhz = if (c.isNull(4)) null else c.getDouble(4)
+                        .takeIf { it.isFinite() && it > 0.0 && it <= Long.MAX_VALUE.toDouble() }
+                        ?.toLong()?.takeIf { it > 0L }
+                    gpuResidency.accept(ClockResidencySample(
+                        elapsedMs = t,
+                        mhz = gpuMhz,
+                        sourceId = sourceForGpu,
+                        origin = MeasurementOrigin.UNKNOWN,
+                        validity = if (gpuMhz == null) ReadingValidity.UNAVAILABLE
+                            else ReadingValidity.VALID,
+                    ))
                     batteryEnergy.accept(DukoBatteryPoint(
                         elapsedMs = t,
                         currentMicroAmps = if (c.isNull(9)) null else c.getLong(9),
@@ -222,6 +243,7 @@ internal class DukoSessionAnalyzer(
                 // The generic Android device capture is never treated as a
                 // calibrated electrical instrument.
                 confidence = DukoConfidence.assess(integrity, energy, thermal),
+                gpuClockResidency = gpuResidency.result(),
             )
         }
 }

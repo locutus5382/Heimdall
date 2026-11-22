@@ -62,7 +62,7 @@ class DukoFoundationAndroidTest {
                     observedAtMs = System.currentTimeMillis(),
                     cpuLoadPercent = 40.0, batteryLevelPercent = 70,
                     batteryTemperatureC = 33.0, availableMemoryMiB = 1400L,
-                    cpuClockMHz = 1600L, gpuClockMHz = null,
+                    cpuClockMHz = 1600L, gpuClockMHz = 500L,
                     observedElapsedMs = base,
                     batteryCurrentUa = -2_000_000L,
                     batteryVoltageMv = 4_000,
@@ -74,7 +74,7 @@ class DukoFoundationAndroidTest {
                     observedAtMs = System.currentTimeMillis() + 2_000L,
                     cpuLoadPercent = 60.0, batteryLevelPercent = 70,
                     batteryTemperatureC = 34.0, availableMemoryMiB = 1300L,
-                    cpuClockMHz = 1800L, gpuClockMHz = null,
+                    cpuClockMHz = 1800L, gpuClockMHz = 700L,
                     observedElapsedMs = base + 2_000L,
                     batteryCurrentUa = -2_000_000L,
                     batteryVoltageMv = 4_000,
@@ -91,6 +91,14 @@ class DukoFoundationAndroidTest {
                 assertEquals(1.0, cpu.coverage, 1e-9)
                 assertEquals(DukoEvidence.SUPPORTED, cpu.evidence)
                 val gpu = requireNotNull(report.integrity.metrics[DukoMetric.GPU_LOAD])
+                // Existing historical SQLite scan must feed clock residency without
+                // conflating GPU clock with GPU utilization.
+                val residency = requireNotNull(report.gpuClockResidency)
+                assertEquals(2_000L, residency.coveredMs)
+                assertEquals(0L, residency.unknownMs)
+                assertEquals(1, residency.transitions)
+                assertEquals(200L, residency.largestRiseMHz)
+                assertEquals(DukoEvidence.QUALIFIED, residency.evidence)
                 assertEquals(DukoEvidence.INSUFFICIENT, gpu.evidence)
                 assertNull(gpu.timeWeightedMean)
                 // SQLite adapter must preserve battery microamp and millivolt
