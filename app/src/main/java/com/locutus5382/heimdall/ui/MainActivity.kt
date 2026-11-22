@@ -23,18 +23,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.locutus5382.heimdall.HeimdallApplication
 import com.locutus5382.heimdall.engine.RecorderStatus
-import com.locutus5382.heimdall.recording.SavedSession
-import com.locutus5382.heimdall.recording.SessionArchive
 import com.locutus5382.heimdall.ui.dashboard.BifrostDashboard
 import com.locutus5382.heimdall.ui.dashboard.DashboardViewModel
 import com.locutus5382.heimdall.ui.navigation.BifrostBlade
@@ -50,12 +44,20 @@ import com.locutus5382.heimdall.ui.theme.HeimdallTheme
  */
 class MainActivity : ComponentActivity() {
     private lateinit var dashboardModel: DashboardViewModel
+    private lateinit var sessionsModel: SessionScreenViewModel
+    private lateinit var compareModel: CompareScreenViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val graph = (application as HeimdallApplication).graph
         dashboardModel = ViewModelProvider(this, DashboardViewModel.Factory(graph))
             .get(DashboardViewModel::class.java)
+        sessionsModel = ViewModelProvider(this,
+            SessionScreenViewModel.Factory(SessionScreenRepository(this)))
+            .get(SessionScreenViewModel::class.java)
+        compareModel = ViewModelProvider(this,
+            CompareScreenViewModel.Factory(ComparisonRepository(this)))
+            .get(CompareScreenViewModel::class.java)
         dashboardModel.inspect()
         setContent {
             val state by dashboardModel.uiState.collectAsStateWithLifecycle()
@@ -106,8 +108,8 @@ class MainActivity : ComponentActivity() {
                             onDiagnostics = { openBlade(BifrostBlade.DIAGNOSTICS) },
                         )
                     },
-                    sessions = { BifrostSessionsScreen(refreshKey) },
-                    compare = { BifrostCompareScreen(refreshKey) },
+                    sessions = { BifrostSessionsScreen(refreshKey, sessionsModel) },
+                    compare = { BifrostCompareScreen(refreshKey, compareModel) },
                     bladeContent = { blade, _, openTab ->
                         when (blade) {
                             BifrostBlade.SETUP -> DukoTagEditor(
@@ -116,6 +118,7 @@ class MainActivity : ComponentActivity() {
                             BifrostBlade.HUD_STUDIO -> HudStudioPanel()
                             BifrostBlade.RUN_PICKER -> BifrostRunPicker(
                                 refreshKey = refreshKey,
+                                model = compareModel,
                                 openCompare = { openTab(BifrostTab.COMPARE) }
                             )
                             BifrostBlade.DIAGNOSTICS -> DiagnosticsPanel()
@@ -136,57 +139,48 @@ class MainActivity : ComponentActivity() {
 
 /** One independently scrollable session surface; no second comparison panel. */
 @Composable
-private fun BifrostSessionsScreen(refreshKey: Long) {
+private fun BifrostSessionsScreen(refreshKey: Long, model: SessionScreenViewModel) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(horizontal = 16.dp, vertical = 18.dp),
         verticalArrangement = Arrangement.spacedBy(13.dp)) {
         Text("SESSIONS  /  DUKO", color = BifrostColors.Signal)
         Text("Review saved telemetry, evidence quality and session exports.",
             color = BifrostColors.Muted)
-        SessionHistoryPanel(refreshKey = refreshKey, showComparison = false)
+        SessionHistoryPanel(refreshKey = refreshKey, model = model)
     }
 }
 
-/** Existing DUKO compare adapter is the only A/B UI authority. */
+/** A/B state and historical list are owned by the Activity's Compare ViewModel. */
 @Composable
-private fun BifrostCompareScreen(refreshKey: Long) {
-    val app = LocalContext.current.applicationContext
-    val archive = remember(app) { SessionArchive(app) }
-    var sessions by remember { mutableStateOf<List<SavedSession>>(emptyList()) }
-    var problem by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(refreshKey) {
-        try {
-            sessions = archive.recent()
-            problem = null
-        } catch (error: Exception) {
-            problem = "Saved runs unavailable: " + error.javaClass.simpleName
-        }
-    }
+private fun BifrostCompareScreen(refreshKey: Long, model: CompareScreenViewModel) {
+    val state by model.ui.collectAsStateWithLifecycle()
+    LaunchedEffect(refreshKey) { model.refresh(refreshKey) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(horizontal = 16.dp, vertical = 18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("COMPARE  /  DUKO A–B", color = BifrostColors.Signal)
         Text("Select two real recordings. Results describe device telemetry, not FPS.",
             color = BifrostColors.Muted)
-        if (problem != null) Text(problem.orEmpty(), color = BifrostColors.Coral)
-        if (sessions.size < 2) {
-            Text("Record at least two sessions to compare.",
-                color = BifrostColors.Muted)
+        if (state.loading) Text("Loading saved runs…", color = BifrostColors.Muted)
+        if (state.issue != null) Text(state.issue.orEmpty(), color = BifrostColors.Coral)
+        if (state.sessions.size < 2) {
+            Text("Record at least two sessions to compare.", color = BifrostColors.Muted)
         } else {
-            DukoComparisonPanel(sessions)
+            DukoComparisonPanel(model)
         }
     }
 }
 
-/** Contextual entry, not a duplicate A/B comparison engine in the blade. */
+/** Contextual entry only; it uses the same Compare list, not a second DB owner. */
 @Composable
-private fun BifrostRunPicker(refreshKey: Long, openCompare: () -> Unit) {
-    val app = LocalContext.current.applicationContext
-    val archive = remember(app) { SessionArchive(app) }
-    var sessions by remember { mutableStateOf<List<SavedSession>>(emptyList()) }
-    LaunchedEffect(refreshKey) {
-        sessions = runCatching { archive.recent(8) }.getOrDefault(emptyList())
-    }
+private fun BifrostRunPicker(
+    refreshKey: Long,
+    model: CompareScreenViewModel,
+    openCompare: () -> Unit,
+) {
+    val state by model.ui.collectAsStateWithLifecycle()
+    LaunchedEffect(refreshKey) { model.refresh(refreshKey) }
+    val sessions = state.sessions.take(8)
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("RECORDED RUNS", color = BifrostColors.Signal)
         sessions.forEach { session ->
