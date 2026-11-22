@@ -9,7 +9,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import com.locutus5382.heimdall.ui.MainActivity
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -25,10 +26,12 @@ import org.junit.runner.RunWith
  * Regression for PR #53 P1: the gamepad handler must not be an ancestor of
  * editable content. The editor receives gamepad input without changing tabs
  * or opening Setup/HUD blades. A focused navigation header still owns shortcuts.
+ * Launch the app's registered MainActivity rather than relying on a nonexistent
+ * LAUNCHER activity in the .test instrumentation package.
  */
 @RunWith(AndroidJUnit4::class)
 class BifrostControllerFocusAndroidTest {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule val compose = createAndroidComposeRule<MainActivity>()
 
     @Test fun editorFocusDoesNotTriggerGlobalGamepadShortcuts() {
         var edited by mutableStateOf("Turnip")
