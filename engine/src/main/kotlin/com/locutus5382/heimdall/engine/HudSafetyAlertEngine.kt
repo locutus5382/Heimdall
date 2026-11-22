@@ -99,6 +99,18 @@ class HudSafetyAlertEngine {
         lastState = HudSafetyState()
     }
 
+    /** Hide cached alerts when no fresh recorder sample arrives. This does not advance
+     * hysteresis timers or invent a new observation; the next real sample owns recovery.
+     * Caller and DeviceSample.observedElapsedMs must use the same monotonic clock.
+     */
+    fun visibleStateAt(nowElapsedMs: Long): HudSafetyState {
+        val observed = lastElapsedMs ?: return HudSafetyState()
+        if (nowElapsedMs < observed || nowElapsedMs - observed > 4_000L) {
+            return HudSafetyState(batteryTemperatureUnknown = true)
+        }
+        return lastState
+    }
+
     fun observe(recordingSessionId: Long, sample: DeviceSample?): HudSafetyState {
         if (sessionId != recordingSessionId) {
             reset()
