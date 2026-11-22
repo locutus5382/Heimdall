@@ -7,6 +7,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -51,6 +53,7 @@ fun HeimdallShell(
     bladeContent: @Composable (BifrostBlade) -> Unit,
 ) {
     var nav by remember { mutableStateOf(BifrostNavigation()) }
+    var navigationFocused by remember { mutableStateOf(false) }
     BackHandler(enabled = nav.blade != null) {
         nav = nav.apply(BifrostAction.CLOSE_BLADE)
     }
@@ -64,6 +67,11 @@ fun HeimdallShell(
         Column(Modifier.fillMaxSize()) {
             Row(
                 modifier = Modifier.fillMaxWidth().background(BifrostColors.Editorial)
+                    .onFocusChanged { navigationFocused = it.isFocused }
+                    .border(
+                        width = if (navigationFocused) 2.dp else 0.dp,
+                        color = if (navigationFocused) BifrostColors.Signal else Color.Transparent,
+                    )
                     .onKeyEvent { event ->
                         if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
                         val action = controllerAction(event.key.keyCode.toInt(), false)
@@ -125,9 +133,9 @@ fun HeimdallShell(
                         Text(active.name.replace('_', ' '), color = BifrostColors.Ice,
                             fontWeight = FontWeight.Bold)
                         Text("CLOSE", color = BifrostColors.Signal,
-                            modifier = Modifier.clickable {
-                                nav = nav.copy(blade = null)
-                            }.padding(12.dp))
+                            modifier = Modifier.heightIn(min = 48.dp)
+                                .clickable { nav = nav.copy(blade = null) }
+                                .padding(horizontal = 14.dp, vertical = 12.dp))
                     }
                     bladeContent(active)
                 }
