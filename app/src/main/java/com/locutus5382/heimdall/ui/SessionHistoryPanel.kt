@@ -24,6 +24,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.locutus5382.heimdall.engine.duko.ClockResidencyResult
+import com.locutus5382.heimdall.engine.duko.ThermalStabilityResult
+import com.locutus5382.heimdall.engine.duko.DukoEvidence
 import com.locutus5382.heimdall.engine.duko.DukoMetric
 import com.locutus5382.heimdall.engine.duko.DukoFrequencyCapAssessment
 import com.locutus5382.heimdall.engine.duko.DukoFrequencyCapState
@@ -80,6 +82,23 @@ internal fun gpuResidencyLines(result: ClockResidencyResult): List<String> {
         }
     }
     return lines
+}
+
+/** Display no thermal delta when provenance or phase coverage is insufficient. */
+internal fun thermalStabilityLines(result: ThermalStabilityResult): List<String> {
+    val name = result.metric.name.replace('_', ' ')
+    if (result.evidence == DukoEvidence.INSUFFICIENT || result.lateMinusEarlyC == null)
+        return listOf("$name · insufficient verified early/late thermal evidence")
+    val delta = String.format(Locale.US, "%+.1f", result.lateMinusEarlyC)
+    val slope = result.lateSlopeCPerMinute?.let {
+        String.format(Locale.US, "%+.2f °C/min", it)
+    } ?: "unavailable"
+    return listOf(
+        "$name · late minus early $delta °C · ${result.evidence.name}",
+        "Early ${result.earlyCoveredMs / 1000L}s · Late ${result.lateCoveredMs / 1000L}s · " +
+            "late slope $slope · " +
+            (if (result.latePlateauObserved) "approximate late plateau" else "no plateau established")
+    )
 }
 
 @Composable
@@ -311,6 +330,21 @@ fun SessionHistoryPanel(refreshKey: Long) {
                                         "throttling evidence or a performance ranking.",
                                     color = Subtle
                                 )
+                            }
+                            if (duko.thermalStability.isNotEmpty()) {
+                                Text("DUKO THERMAL · EARLY/LATE STABILITY", color = Amber)
+                                listOf(DukoMetric.BATTERY_TEMPERATURE,
+                                    DukoMetric.CPU_TEMPERATURE,
+                                    DukoMetric.GPU_TEMPERATURE).forEach { metric ->
+                                    duko.thermalStability[metric]?.let { result ->
+                                        thermalStabilityLines(result).forEach { line ->
+                                            Text(line, color = Ink)
+                                        }
+                                    }
+                                }
+                                Text("Fixed phases are not matched gameplay. Temperature " +
+                                    "changes or plateaus cannot prove throttling, fan efficiency " +
+                                    "or game performance.", color = Subtle)
                             }
                             Text("DUKO THERMAL · MEASURED TRENDS", color = Amber)
                             listOf(
