@@ -29,6 +29,7 @@ internal data class HudGeometry(
     val graph: RectF?,
     val headerBaseline: Float,
     val detailBaseline: Float,
+    val alertStrip: RectF?,
 )
 
 /**
@@ -157,6 +158,21 @@ internal class HudLayoutEngine(private val fontFactor: Float = 1f) {
             }
         }
 
+        // Reserve an alert strip below telemetry, never over 48dp controls.
+        // The expanded controls and SPINE menu shift down with the view.
+        val alertStrip = if (state.primaryAlert != null) {
+            val previousHeight = h
+            h += 26f
+            if (profile.layout == HudLayout.SPINE) menu.offset(0f, 26f)
+            val top = when (profile.layout) {
+                HudLayout.PILL, HudLayout.RIBBON -> 68f
+                HudLayout.CARD -> 258f
+                HudLayout.SPINE -> previousHeight -
+                    (if (expanded) 204f else 54f) + 2f
+            }
+            RectF(8f, top, w - 8f, top + 20f)
+        } else null
+
         // Keep the action areas inside the actual view and always 48dp tall.
         val mode: RectF
         val lock: RectF
@@ -178,6 +194,6 @@ internal class HudLayoutEngine(private val fontFactor: Float = 1f) {
             lock = RectF(right - 98f, h - 52f, right - 50f, h - 4f)
             mode = RectF(right - 148f, h - 52f, right - 100f, h - 4f)
         }
-        return HudGeometry(w, h, slots, menu, mode, lock, stop, graph, header, detail)
+        return HudGeometry(w, h, slots, menu, mode, lock, stop, graph, header, detail, alertStrip)
     }
 }
