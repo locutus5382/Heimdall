@@ -42,10 +42,10 @@ import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
 
-private val Ink = Color(0xFFEAF1FF)
-private val Subtle = Color(0xFF9EADC2)
-private val Amber = Color(0xFFF2A900)
-private val Slate = Color(0xFF121E32)
+private val Ink = Color(0xFFF2F6FC)
+private val Subtle = Color(0xFF94A7C4)
+private val Amber = Color(0xFFF0BD62)
+private val Slate = Color(0xFF111C31)
 
 /** A completed asynchronous read may publish only into its originating expansion. */
 internal fun mayPublishSessionAnalysis(requestGeneration: Long, currentGeneration: Long,
@@ -154,7 +154,7 @@ fun SessionHistoryPanel(refreshKey: Long, showComparison: Boolean = true) {
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("RECORDED SESSIONS", color = Amber)
+        Text("SAVED RUNS", color = Amber)
         if (history.isEmpty()) Text(
             "Your completed recordings will appear here.",
             color = Subtle
@@ -164,7 +164,7 @@ fun SessionHistoryPanel(refreshKey: Long, showComparison: Boolean = true) {
             Column(
                 modifier = Modifier.fillMaxWidth()
                     .background(Slate, RoundedCornerShape(17.dp))
-                    .border(1.dp, Color(0xFF26364F), RoundedCornerShape(17.dp))
+                    .border(1.dp, Color(0xFF192B49), RoundedCornerShape(17.dp))
                     .padding(13.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {

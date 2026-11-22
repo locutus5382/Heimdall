@@ -60,15 +60,15 @@ fun DiagnosticsPanel() {
 
     Column(
         modifier = Modifier.fillMaxWidth()
-            .background(Color(0xFF121E32), RoundedCornerShape(18.dp))
+            .background(Color(0xFF111C31), RoundedCornerShape(18.dp))
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text("DEVICE DIAGNOSTICS", color = Color(0xFFF2A900))
+        Text("LOCAL DEVICE CAPABILITIES", color = Color(0xFFF0BD62))
         Text(
             "Inspect what this Android device actually exposes. " +
                 "Nothing is uploaded or changed.",
-            color = Color(0xFF9EADC2)
+            color = Color(0xFF94A7C4)
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
@@ -108,16 +108,16 @@ fun DiagnosticsPanel() {
                     Text(
                         label,
                         modifier = Modifier.weight(1f).padding(end = 8.dp),
-                        color = Color(0xFF9EADC2)
+                        color = Color(0xFF94A7C4)
                     )
                     Text(
                         value,
                         modifier = Modifier.weight(1f),
-                        color = Color(0xFFEAF1FF)
+                        color = Color(0xFFF2F6FC)
                     )
                 }
             }
         }
-        message?.let { Text(it, color = Color(0xFFF2A900)) }
+        message?.let { Text(it, color = Color(0xFFF0BD62)) }
     }
 }

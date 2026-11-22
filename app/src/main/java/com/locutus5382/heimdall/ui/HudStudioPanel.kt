@@ -63,17 +63,17 @@ fun HudStudioPanel() {
     }
 
     val gold = Color(0xFFF0BD62)
-    val ink = Color(0xFFEAF1FF)
-    val muted = Color(0xFF9EADC2)
+    val ink = Color(0xFFF2F6FC)
+    val muted = Color(0xFF94A7C4)
 
     Column(
         modifier = Modifier.fillMaxWidth()
-            .background(Color(0xFF121E32), RoundedCornerShape(18.dp))
-            .border(1.dp, Color(0xFF26364F), RoundedCornerShape(18.dp))
+            .background(Color(0xFF111C31), RoundedCornerShape(18.dp))
+            .border(1.dp, Color(0xFF192B49), RoundedCornerShape(18.dp))
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text("HUD STUDIO  /  M4 CANVAS", color = gold)
+        Text("HUD APPEARANCE  /  CANVAS", color = gold)
         Text(
             "Choose how the in-game observatory looks. Settings update the " +
                 "same recording HUD; they never start a second collector.",

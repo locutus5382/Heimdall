@@ -30,7 +30,7 @@ import com.locutus5382.heimdall.engine.duko.MeasurementOrigin
 import com.locutus5382.heimdall.recording.DukoSessionContextStore
 import kotlinx.coroutines.launch
 
-private val DukoIce = Color(0xFFEAF1FF)
+private val DukoIce = Color(0xFFF2F6FC)
 private val DukoMuted = Color(0xFF94A7C4)
 private val DukoGold = Color(0xFFF0BD62)
 
@@ -105,13 +105,13 @@ internal fun DukoTagEditor(sessionId: Long? = null) {
 
     Column(
         modifier = Modifier.fillMaxWidth()
-            .background(Color(0xFF121E32), RoundedCornerShape(18.dp))
-            .border(1.dp, Color(0xFF26364F), RoundedCornerShape(18.dp))
+            .background(Color(0xFF111C31), RoundedCornerShape(18.dp))
+            .border(1.dp, Color(0xFF192B49), RoundedCornerShape(18.dp))
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         Text(
-            if (sessionId == null) "DUKO · NEXT TEST PROFILE"
+            if (sessionId == null) "NEXT TEST CONDITIONS"
             else "DUKO · SESSION #$sessionId",
             color = DukoGold
         )

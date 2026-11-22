@@ -36,10 +36,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.rememberCoroutineScope
 
-private val AbInk = Color(0xFFEAF1FF)
-private val AbSubtle = Color(0xFF9EADC2)
-private val AbAmber = Color(0xFFF2A900)
-private val AbSlate = Color(0xFF121E32)
+private val AbInk = Color(0xFFF2F6FC)
+private val AbSubtle = Color(0xFF94A7C4)
+private val AbAmber = Color(0xFFF0BD62)
+private val AbSlate = Color(0xFF111C31)
 private fun abNumber(n: Double?) =
     n?.let { String.format(Locale.US, "%.1f", it) } ?: "—"
 
@@ -199,7 +199,7 @@ internal fun DukoComparisonPanel(sessions: List<SavedSession>) {
             .padding(13.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text("DUKO A/B COMPARISON", color = AbAmber)
+        Text("BASELINE · CANDIDATE", color = AbAmber)
         Text("Select two distinct completed sessions. User tags do not verify hardware settings.", color = AbSubtle)
         sessions.forEach { session ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
