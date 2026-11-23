@@ -11,8 +11,8 @@ import android.database.sqlite.SQLiteOpenHelper
  */
 internal object HeimdallDatabase {
     const val NAME = "heimdall_v1.db"
-    // v6 adds only a session-scoped elapsed-time index; sample data is unchanged.
-    private const val VERSION = 6
+    // v7 adds nullable per-core/PSI telemetry; historical rows remain intact.
+    private const val VERSION = 7
     private val instances = mutableMapOf<String, SQLiteOpenHelper>()
 
     @Synchronized
@@ -79,6 +79,10 @@ internal object HeimdallDatabase {
                             cpu_policy_clocks TEXT,
                             cpu_policy_limits TEXT,
                             cpu_policy_hardware_max TEXT,
+                            cpu_core_load_pct TEXT,
+                            psi_cpu_some_avg10 REAL,
+                            psi_memory_some_avg10 REAL,
+                            psi_memory_full_avg10 REAL,
                             FOREIGN KEY(session_id) REFERENCES sessions(id)
                         )
                     """.trimIndent())
@@ -92,7 +96,7 @@ internal object HeimdallDatabase {
                 }
 
                 override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-                    require(oldVersion in 1..5 && newVersion == 6) {
+                    require(oldVersion in 1..6 && newVersion == 7) {
                         "UNSUPPORTED_MIGRATION_${oldVersion}_${newVersion}"
                     }
                     if (oldVersion == 1) {
@@ -172,6 +176,13 @@ internal object HeimdallDatabase {
                         "CREATE INDEX IF NOT EXISTS samples_session_elapsed_idx " +
                             "ON samples(session_id,elapsed_ms,id)"
                     )
+                    // v7: additive only. No rewrite of any historical row.
+                    listOf(
+                        "cpu_core_load_pct TEXT",
+                        "psi_cpu_some_avg10 REAL",
+                        "psi_memory_some_avg10 REAL",
+                        "psi_memory_full_avg10 REAL"
+                    ).forEach { db.execSQL("ALTER TABLE samples ADD COLUMN $it") }
                 }
             }
         }

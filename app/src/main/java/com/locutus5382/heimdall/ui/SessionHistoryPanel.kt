@@ -266,6 +266,8 @@ internal fun SessionHistoryPanel(
                         if (section == SessionDetailSection.ANALYSIS.name) {
                         val duko = foundation
                         if (duko != null) {
+                            DukoSignalCharts(duko)
+                            DukoCoreAndPressurePanel(duko)
                             Text("DUKO FOUNDATION · DATA INTEGRITY", color = Amber)
                             Text(
                                 "Observed monotonic interval: ${duko.window.durationMs / 1000L}s · " +
@@ -353,9 +355,21 @@ internal fun SessionHistoryPanel(
                                         "${metric.name.replace('_', ' ')} · " +
                                             "P50 ${fmt(item.median)} ${metric.unit.symbol} · " +
                                             "Time-mean ${fmt(item.timeWeightedMean)} ${metric.unit.symbol} · " +
+                                            "Mean ${fmt(item.sampleMean)} · SD ±${fmt(item.sampleStandardDeviation)} · " +
                                             "Coverage ${String.format(Locale.US, "%.0f", item.coverage * 100)}% · " +
                                             item.evidence.name,
                                         color = Ink
+                                    )
+                                    Text(
+                                        "Min ${fmt(item.minimum)} at " +
+                                            (item.minimumAtElapsedMs?.let {
+                                                "+${(it - duko.window.startMs).coerceAtLeast(0L) / 1000L}s"
+                                            } ?: "unknown") +
+                                            " · peak ${fmt(item.maximum)} at " +
+                                            (item.maximumAtElapsedMs?.let {
+                                                "+${(it - duko.window.startMs).coerceAtLeast(0L) / 1000L}s"
+                                            } ?: "unknown"),
+                                        color = Subtle
                                     )
                                     if (item.warnings.isNotEmpty())
                                         Text(item.warnings.joinToString(", "),

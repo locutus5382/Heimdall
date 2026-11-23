@@ -9,6 +9,7 @@ import com.locutus5382.heimdall.engine.DeviceSample
 import com.locutus5382.heimdall.engine.AppendOutcome
 import com.locutus5382.heimdall.engine.RecordingPersistence
 import com.locutus5382.heimdall.engine.RecordingPreparation
+import com.locutus5382.heimdall.engine.duko.CoreLoadCodec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -148,6 +149,13 @@ internal class LocalRecordingStore(
                 sample.gpuLoadPercent?.let { put("gpu_load_pct", it) }
                 sample.cpuTemperatureC?.let { put("cpu_temp_c", it) }
                 sample.gpuTemperatureC?.let { put("gpu_temp_c", it) }
+                CoreLoadCodec.encode(sample.cpuCoreLoadPercent)?.let { put("cpu_core_load_pct", it) }
+                sample.psiCpuSomeAvg10?.takeIf { it.isFinite() && it in 0.0..100.0 }
+                    ?.let { put("psi_cpu_some_avg10", it) }
+                sample.psiMemorySomeAvg10?.takeIf { it.isFinite() && it in 0.0..100.0 }
+                    ?.let { put("psi_memory_some_avg10", it) }
+                sample.psiMemoryFullAvg10?.takeIf { it.isFinite() && it in 0.0..100.0 }
+                    ?.let { put("psi_memory_full_avg10", it) }
                 fun encode(m: Map<String, Long>): String =
                     m.entries.sortedBy { it.key }.joinToString("|") {
                         "${it.key}=${it.value}"

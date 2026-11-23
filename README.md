@@ -17,7 +17,7 @@ gate**; M1.7 physical Odin 2 Portal validation has **not** been completed.
 **This is not RC1, a stable signed release, or a Play Store build.**
 
 The Gradle app version currently remains
-`0.7.0-duko-foundation-alpha` (versionCode 8). Development milestone numbers
+`0.8.0-percore-psi-alpha` (versionCode 9). Development milestone numbers
 M1.6 / M1.7 refer to **integration work**, not that Gradle version.
 
 ### Working features in source
@@ -33,7 +33,7 @@ M1.6 / M1.7 refer to **integration work**, not that Gradle version.
 - **HUD:** one permission-gated Canvas overlay with Pill, Card, Ribbon and
   Spine layouts, configurable metrics, docking, scale, opacity, touch lock
   and a renderer-backed Studio preview. Physical game overlay still untested.
-- **Recorded evidence:** SQLite WAL, **schema v6**, durable STOP and
+- **Recorded evidence:** SQLite WAL, **schema v7**, durable STOP and
   interruption safeguards, read-only session history, on-demand analysis,
   recorded timestamps and selected-session CSV export. Existing data must
   not be deleted for testing.
@@ -44,6 +44,11 @@ M1.6 / M1.7 refer to **integration work**, not that Gradle version.
 - **Test conditions:** user-declared game, emulator, driver, fan, performance
   mode, ClusterTune and notes, marked as reusable or next-session-only.
   Declared settings are **not automatically verified**.
+- **Per-core and PSI telemetry (M1.7 pretest):** per-core /proc/stat
+  utilization deltas and system CPU/memory PSI avg10 rolling-pressure
+  values, where readable; historical busiest-core/cluster statistics,
+  observed frequency-ceiling timelines, and real sample charts with extrema,
+  arithmetic mean and sample SD. Android access limitations are surfaced.
 - **Diagnostics:** explicit on-device read-only CPU-policy, GPU, thermal,
   PSI, capability, permissions and database inspection, optionally exported
   as a local TXT report.
@@ -80,8 +85,8 @@ verifies permissions and APK checksums, and runs API 35 instrumentation
 against the normal and separately optimized QA builds. **A green Android
 build alone is not an accepted milestone.**
 
-The CI artifacts `HEIMDALL-v0.7.0-duko-debug` and
-`HEIMDALL-v0.7.0-duko-lean-debug` contain test APKs and a SHA-256 manifest.
+The CI artifacts `HEIMDALL-v0.8.0-percore-psi-debug` and
+`HEIMDALL-v0.8.0-percore-psi-lean-debug` contain test APKs and a SHA-256 manifest.
 Install only from a **successful exact-commit run**. CI debug signing
 certificates can change between runs, so `adb install -r` may reject an
 upgrade. **Never uninstall Heimdall to bypass a signing mismatch if its

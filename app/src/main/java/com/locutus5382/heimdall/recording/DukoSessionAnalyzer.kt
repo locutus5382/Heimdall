@@ -25,6 +25,14 @@ import com.locutus5382.heimdall.engine.duko.DukoSessionOutcome
 import com.locutus5382.heimdall.engine.duko.DukoStatisticsAccumulator
 import com.locutus5382.heimdall.engine.duko.DukoWindow
 import com.locutus5382.heimdall.engine.duko.MeasurementOrigin
+import com.locutus5382.heimdall.engine.duko.CoreLoadCodec
+import com.locutus5382.heimdall.engine.duko.CpuPolicyTopology
+import com.locutus5382.heimdall.engine.duko.CoreActivityAccumulator
+import com.locutus5382.heimdall.engine.duko.CoreActivityReport
+import com.locutus5382.heimdall.engine.duko.FrequencyCapTimeline
+import com.locutus5382.heimdall.engine.duko.FrequencyCapTimelineAccumulator
+import com.locutus5382.heimdall.engine.duko.TimedSignalAccumulator
+import com.locutus5382.heimdall.engine.duko.TimedSignalSummary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -45,7 +53,12 @@ data class DukoFoundationReport(
     val confidence: DukoConfidenceReport,
     val gpuClockResidency: ClockResidencyResult? = null,
     val thermalStability: Map<DukoMetric, ThermalStabilityResult> = emptyMap(),
-    val analysisVersion: Int = 2,
+    val coreActivity: CoreActivityReport? = null,
+    val frequencyCaps: FrequencyCapTimeline? = null,
+    val timelines: Map<String, TimedSignalSummary> = emptyMap(),
+    val perCoreTimelines: Map<Int, TimedSignalSummary> = emptyMap(),
+    val declaredClusterTuneEnabled: Boolean? = null,
+    val analysisVersion: Int = 3,
 )
 
 internal class DukoSessionAnalyzer(
@@ -92,6 +105,15 @@ internal class DukoSessionAnalyzer(
             val snapshotJson = runCatching {
                 snapshot?.let { JSONObject(it) }
             }.getOrNull()
+            // Declared tuner state is metadata, never an inference or causal claim.
+            val declaredClusterTuneEnabled: Boolean? = database.rawQuery(
+                "SELECT cluster_tune_enabled FROM duko_session_contexts " +
+                    "WHERE session_id=? LIMIT 1",
+                arrayOf(sessionId.toString())
+            ).use { cursor ->
+                if (!cursor.moveToFirst() || cursor.isNull(0)) null
+                else cursor.getInt(0) == 1
+            }
             val sourceForGpu = snapshotJson?.optString("gpuClockSource")
                 ?.takeIf { it.isNotBlank() } ?: "GPU_SOURCE_UNVERIFIED"
             val sourceForGpuLoad = snapshotJson?.optString("gpuLoadSource")
@@ -119,6 +141,44 @@ internal class DukoSessionAnalyzer(
                 DukoWindow(recorded.first, recorded.second)
             }
             val cadence = session.second.coerceIn(250L, 60_000L)
+            val policies = linkedMapOf<String, Set<Int>>()
+            snapshotJson?.optJSONArray("cpuPolicies")?.let { array ->
+                for (i in 0 until array.length()) {
+                    val p = array.optJSONObject(i) ?: continue
+                    val id = p.optString("id")
+                    val cores = CpuPolicyTopology.parse(p.optString("relatedCpus"))
+                    if (id.matches(Regex("policy[0-9]+")) && cores.isNotEmpty())
+                        policies[id] = cores
+                }
+            }
+            val coreActivity = CoreActivityAccumulator(window, policies, cadence)
+            val frequencyCaps = FrequencyCapTimelineAccumulator(window, cadence)
+            // Fixed-size real-data plot buckets. Each selected interval gets
+            // its own actual-sample extrema, mean, standard deviation and trace.
+            val timelineSpecs = linkedMapOf(
+                "CPU LOAD" to "%",
+                "GPU LOAD" to "%",
+                "CPU CLOCK" to "MHz",
+                "GPU CLOCK" to "MHz",
+                "BATTERY TEMP" to "°C",
+                "CPU TEMP" to "°C",
+                "GPU TEMP" to "°C",
+                "CPU PSI SOME AVG10" to "%",
+                "MEMORY PSI SOME AVG10" to "%",
+                "MEMORY PSI FULL AVG10" to "%",
+            )
+            val timelines = timelineSpecs.mapValues { (label, unit) ->
+                TimedSignalAccumulator(label, unit, window)
+            }
+            val coreTimelines = mutableMapOf<Int, TimedSignalAccumulator>()
+            fun policyMap(raw: String?): Map<String, Long> =
+                raw?.take(5000)?.split("|")?.take(128)?.mapNotNull { item ->
+                    val pair = item.split('=', limit = 2)
+                    if (pair.size != 2 ||
+                        !pair[0].matches(Regex("policy[0-9]+"))) null
+                    else pair[1].toLongOrNull()?.takeIf { it > 0L }
+                        ?.let { pair[0] to it }
+                }?.toMap().orEmpty()
             val accumulators = selectedMetrics.associateWith {
                 DukoStatisticsAccumulator(it, window, cadence)
             }
@@ -163,7 +223,10 @@ internal class DukoSessionAnalyzer(
                           gpu_clock_mhz,battery_temp_c,battery_pct,
                           cpu_temp_c,gpu_temp_c,battery_current_ua,
                           battery_voltage_mv,free_memory_mib,battery_plugged,
-                          battery_status
+                          battery_status,cpu_policy_limits,
+                          cpu_policy_hardware_max,cpu_core_load_pct,
+                          psi_cpu_some_avg10,psi_memory_some_avg10,
+                          psi_memory_full_avg10
                    FROM $selectedFrom WHERE session_id=?$selectedSql ORDER BY id""",
                 selectedArgs
             ).use { c ->
@@ -171,6 +234,31 @@ internal class DukoSessionAnalyzer(
                     if (c.isNull(0)) continue // Legacy row, no valid elapsed clock
                     val t = c.getLong(0)
                     if (t < 0) continue
+                    val coreLoads = CoreLoadCodec.decode(
+                        if (c.isNull(16)) null else c.getString(16)
+                    )
+                    coreActivity.accept(t, coreLoads)
+                    coreLoads.forEach { (id, load) ->
+                        coreTimelines.getOrPut(id) {
+                            TimedSignalAccumulator("CPU CORE $id", "%", window)
+                        }.accept(t, load)
+                    }
+                    frequencyCaps.accept(t,
+                        policyMap(if (c.isNull(14)) null else c.getString(14)),
+                        policyMap(if (c.isNull(15)) null else c.getString(15)))
+                    fun signal(index: Int): Double? =
+                        if (c.isNull(index)) null else c.getDouble(index)
+                            .takeIf { it.isFinite() }
+                    timelines["CPU LOAD"]?.accept(t, signal(1))
+                    timelines["GPU LOAD"]?.accept(t, signal(2))
+                    timelines["CPU CLOCK"]?.accept(t, signal(3))
+                    timelines["GPU CLOCK"]?.accept(t, signal(4))
+                    timelines["BATTERY TEMP"]?.accept(t, signal(5))
+                    timelines["CPU TEMP"]?.accept(t, signal(7))
+                    timelines["GPU TEMP"]?.accept(t, signal(8))
+                    timelines["CPU PSI SOME AVG10"]?.accept(t, signal(17))
+                    timelines["MEMORY PSI SOME AVG10"]?.accept(t, signal(18))
+                    timelines["MEMORY PSI FULL AVG10"]?.accept(t, signal(19))
                     val gpuMhz = if (c.isNull(4)) null else c.getDouble(4)
                         .takeIf { it.isFinite() && it > 0.0 && it <= Long.MAX_VALUE.toDouble() }
                         ?.toLong()?.takeIf { it > 0L }
@@ -257,6 +345,11 @@ internal class DukoSessionAnalyzer(
                 confidence = DukoConfidence.assess(integrity, energy, thermal),
                 gpuClockResidency = gpuResidency.result(),
                 thermalStability = stabilityAccumulators.mapValues { (_, a) -> a.result() },
+                coreActivity = coreActivity.result(),
+                frequencyCaps = frequencyCaps.result(),
+                timelines = timelines.mapValues { (_, a) -> a.result() },
+                perCoreTimelines = coreTimelines.mapValues { (_, a) -> a.result() },
+                declaredClusterTuneEnabled = declaredClusterTuneEnabled,
             )
         }
 }

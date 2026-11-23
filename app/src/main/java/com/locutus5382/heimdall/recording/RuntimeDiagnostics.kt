@@ -11,6 +11,8 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
+import com.locutus5382.heimdall.engine.duko.CpuStatParser
+import com.locutus5382.heimdall.engine.duko.PsiParser
 
 /**
  * User-requested, read-only capability and persistence snapshot.
@@ -69,8 +71,26 @@ class RuntimeDiagnostics(context: Context) {
         }.getOrNull())
 
         line("/proc/stat readable", readable("/proc/stat"))
+        val coreSource = runCatching {
+            File("/proc/stat").useLines { lines ->
+                CpuStatParser.parse(lines.take(129).joinToString("\n"))
+            }
+        }.getOrNull()
+        line("CPU cores exposed by /proc/stat", coreSource?.cores?.size)
         line("CPU pressure readable", readable("/proc/pressure/cpu"))
         line("Memory pressure readable", readable("/proc/pressure/memory"))
+        line("CPU PSI some avg10 (%)", runCatching {
+            PsiParser.parse(File("/proc/pressure/cpu").readText().take(1000))
+                .some?.avg10
+        }.getOrNull())
+        line("Memory PSI some avg10 (%)", runCatching {
+            PsiParser.parse(File("/proc/pressure/memory").readText().take(1000))
+                .some?.avg10
+        }.getOrNull())
+        line("Memory PSI full avg10 (%)", runCatching {
+            PsiParser.parse(File("/proc/pressure/memory").readText().take(1000))
+                .full?.avg10
+        }.getOrNull())
 
         // Exactly the same discovered handles used by AndroidTelemetrySource.
         val catalog = SensorCatalog.get(app)
