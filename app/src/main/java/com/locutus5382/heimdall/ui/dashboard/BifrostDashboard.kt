@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -21,12 +22,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +49,11 @@ import com.locutus5382.heimdall.engine.RecorderStatus
 import com.locutus5382.heimdall.ui.theme.BifrostColors
 import kotlinx.coroutines.delay
 import java.util.Locale
+
+private enum class TelemetryPage(val label: String) {
+    ALL("ALL READINGS"), ESSENTIAL("ESSENTIALS"), CLOCKS("CLOCKS / MEMORY"),
+    THERMALS("THERMALS")
+}
 
 /** The only Dashboard: real recorder controls and live evidence, never history panels. */
 @Composable
@@ -67,6 +76,7 @@ fun BifrostDashboard(
         val wide = maxWidth >= 680.dp
         val recording = status as? RecorderStatus.Recording
         val last = recording?.last
+        var telemetryPage by rememberSaveable { mutableStateOf(TelemetryPage.ALL.name) }
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState())
                 .padding(horizontal = if (wide) 24.dp else 14.dp, vertical = 16.dp),
@@ -106,7 +116,8 @@ fun BifrostDashboard(
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("LIVE TELEMETRY", color = BifrostColors.Muted,
                             fontSize = 11.sp, letterSpacing = 1.3.sp)
-                        MetricsGrid(last, true)
+                        TelemetryPagePicker(telemetryPage) { telemetryPage = it }
+                        MetricsGrid(last, true, telemetryPage)
                     }
                 }
             } else {
@@ -126,7 +137,17 @@ fun BifrostDashboard(
                     }, color = if (age != null && age > 8L)
                         BifrostColors.Amber else BifrostColors.Muted, fontSize = 10.sp)
                 }
-                MetricsGrid(last, false)
+                TelemetryPagePicker(telemetryPage) { telemetryPage = it }
+                MetricsGrid(last, false, telemetryPage)
+            }
+
+            if (status is RecorderStatus.Finished) {
+                OutlinedButton(
+                    onClick = onSessions,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                ) {
+                    Text("REVIEW SAVED SESSION #${status.sessionId}")
+                }
             }
 
             Column(
@@ -309,7 +330,25 @@ private fun RecordingDuration(startElapsedMs: Long?): String? {
 }
 
 @Composable
-private fun MetricsGrid(sample: DeviceSample?, wide: Boolean) {
+private fun TelemetryPagePicker(selected: String, onSelect: (String) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        TelemetryPage.entries.chunked(2).forEach { pair ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                pair.forEach { group ->
+                    FilterChip(
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                        selected = selected == group.name,
+                        onClick = { onSelect(group.name) },
+                        label = { Text(group.label, fontSize = 11.sp, maxLines = 1) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MetricsGrid(sample: DeviceSample?, wide: Boolean, page: String) {
     // This grid has the SAME source as the foreground recorder/HUD. Never
     // turn a missing sensor into zero or imply that these are frame rates.
     val cells = listOf(
@@ -328,10 +367,19 @@ private fun MetricsGrid(sample: DeviceSample?, wide: Boolean) {
             ?.let { String.format(Locale.US, "%.1f°C", it) },
         "AVAILABLE RAM" to sample?.availableMemoryMiB?.let { "$it MiB" },
     )
+    val visible = when (page) {
+        TelemetryPage.ESSENTIAL.name ->
+            cells.filter { it.first in setOf("CPU LOAD", "GPU LOAD", "BATTERY", "BATTERY TEMP") }
+        TelemetryPage.CLOCKS.name ->
+            cells.filter { it.first in setOf("CPU CLOCK", "GPU CLOCK", "AVAILABLE RAM") }
+        TelemetryPage.THERMALS.name ->
+            cells.filter { it.first in setOf("BATTERY TEMP", "CPU TEMP", "GPU TEMP") }
+        else -> cells
+    }
     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
         // Two columns on a narrow portrait screen; three on a handheld in
         // landscape. The previous 3-narrow/2-wide arrangement clipped values.
-        cells.chunked(if (wide) 3 else 2).forEach { row ->
+        visible.chunked(if (wide) 3 else 2).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 row.forEach { (label, value) ->
                     Column(Modifier.weight(1f)
