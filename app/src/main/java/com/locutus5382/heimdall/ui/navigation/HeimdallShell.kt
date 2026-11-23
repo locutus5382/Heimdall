@@ -28,7 +28,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,8 +36,6 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -54,7 +51,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
 import com.locutus5382.heimdall.ui.theme.BifrostColors
-import kotlinx.coroutines.delay
 
 /** Presentation-only navigation; recorder/DUKO callbacks are owned by MainActivity. */
 @Composable
@@ -82,28 +78,13 @@ fun HeimdallShell(
         tabName = next.tab.name
         bladeName = next.blade?.name
     }
-    val navFocus = remember { FocusRequester() }
-    val closeFocus = remember { FocusRequester() }
+    // TOUCH-FIRST: never steal keyboard/editor focus and never request focus
+    // before Compose attaches a FocusRequester (the previous code crashed at
+    // startup on five Android UI tests). Controller navigation remains an
+    // optional capability when the tab strip receives focus naturally.
     var navFocused by remember { mutableStateOf(false) }
-    // The first controller key must work on a freshly opened handheld app,
-    // without asking the player to touch a tab. Once an editor is focused,
-    // only the nav header owns shortcuts; typing remains unmodified.
-    LaunchedEffect(Unit) { navFocus.requestFocus() }
     BackHandler(enabled = blade != null || tab != BifrostTab.DASHBOARD) {
         if (blade != null) closeBlade() else openTab(BifrostTab.DASHBOARD)
-    }
-    // When a blade opens by touch or controller, place focus on its explicit CLOSE
-    // control. No root preview handler is allowed to capture text entry.
-    var focusWasInBlade by remember { mutableStateOf(false) }
-    LaunchedEffect(blade) {
-        if (blade != null) {
-            focusWasInBlade = true
-            delay(200L)
-            closeFocus.requestFocus()
-        } else if (focusWasInBlade) {
-            focusWasInBlade = false
-            navFocus.requestFocus()
-        }
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()
@@ -124,7 +105,6 @@ fun HeimdallShell(
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth()
-                        .focusRequester(navFocus)
                         .onFocusChanged { navFocused = it.isFocused }
                         .border(if (navFocused) 2.dp else 0.dp,
                             if (navFocused) BifrostColors.Signal else Color.Transparent)
@@ -196,8 +176,7 @@ fun HeimdallShell(
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.semantics { heading() })
                     Text("CLOSE", color = BifrostColors.Signal,
-                        modifier = Modifier.focusRequester(closeFocus)
-                            .heightIn(min = 48.dp).clickable { closeBlade() }
+                        modifier = Modifier.heightIn(min = 48.dp).clickable { closeBlade() }
                             .focusable()
                             .padding(horizontal = 12.dp, vertical = 13.dp))
                 }
