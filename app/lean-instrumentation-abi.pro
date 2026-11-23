@@ -22,6 +22,15 @@
 -keep class androidx.compose.runtime.** { *; }
 -keep class androidx.compose.ui.** { *; }
 
+# M1.4g: the independent Compose controller-focus instrumentation is the only
+# UI test that calls BasicTextField directly. In leanDebug the test APK retains
+# references to Foundation Text Kotlin singleton INSTANCE fields, while the
+# separately shrunk target APK can rename those singleton fields, yielding a
+# NoSuchFieldError (obfuscated q.i.INSTANCE) before the editor is composed.
+# Preserve the narrow Foundation Text ABI for the *QA* target only. This is
+# NOT part of release/releaseQa R8 rules; no app recording behavior changes.
+-keep class androidx.compose.foundation.text.** { *; }
+
 # Separately compiled Android instrumentation calls Heimdall classes and
 # constructors by their original binary names. In optimized QA only, retain
 # that test-facing ABI: this is NOT included in release R8 rules.
