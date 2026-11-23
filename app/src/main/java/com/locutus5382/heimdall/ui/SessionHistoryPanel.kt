@@ -145,6 +145,7 @@ internal fun SessionHistoryPanel(
                     ) { Text(if (expandedId == session.id) "HIDE" else "ANALYZE") }
                     OutlinedButton(
                         modifier = Modifier.weight(1f),
+                        enabled = !state.exporting && state.pendingExportId == null,
                         onClick = {
                             if (model.requestExport(session.id))
                                 chooser.launch("Heimdall_session_${session.id}.csv")
@@ -307,6 +308,8 @@ internal fun SessionHistoryPanel(
                 }
             }
         }
-        if (notice != null) Text(notice ?: "", color = Amber)
+        if (state.loadingHistory) Text("Refreshing saved runs…", color = Subtle)
+        if (state.exporting) Text("Exporting session CSV…", color = Subtle)
+        if (notice != null) Text(notice, color = Amber)
     }
 }
