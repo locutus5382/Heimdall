@@ -198,17 +198,43 @@ private fun BifrostRunPicker(
 ) {
     val state by model.ui.collectAsStateWithLifecycle()
     LaunchedEffect(refreshKey) { model.refresh(refreshKey) }
-    val sessions = state.sessions.take(8)
+    val sessions = state.sessions.take(10)
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("RECORDED RUNS", color = BifrostColors.Signal)
+        Text("SELECT COMPARISON RUNS", color = BifrostColors.Signal)
+        Text("Choose A as the baseline and B as the candidate. Both use saved recordings.",
+            color = BifrostColors.Muted)
+        if (state.loading) Text("Loading saved runs…", color = BifrostColors.Muted)
         sessions.forEach { session ->
-            Text("Session #" + session.id + " · " + session.samples + " samples",
-                color = BifrostColors.Ice)
+            Row(Modifier.fillMaxWidth(),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Text("SESSION #${session.id}", color = BifrostColors.Ice)
+                    Text("${session.samples} samples · ${session.reason}",
+                        color = BifrostColors.Muted)
+                }
+                OutlinedButton(
+                    onClick = { model.selectA(session.id) },
+                    enabled = state.a != session.id,
+                ) { Text(if (state.a == session.id) "A ✓" else "SET A") }
+                OutlinedButton(
+                    onClick = { model.selectB(session.id) },
+                    enabled = state.b != session.id,
+                ) { Text(if (state.b == session.id) "B ✓" else "SET B") }
+            }
         }
         if (sessions.size < 2) Text("At least two completed runs are required.",
             color = BifrostColors.Muted)
+        Text(
+            "Baseline: ${state.a?.let { "#$it" } ?: "none"} · " +
+                "Candidate: ${state.b?.let { "#$it" } ?: "none"}",
+            color = BifrostColors.Amber
+        )
+        if (state.a != null && state.a == state.b) {
+            Text("Choose two different sessions.", color = BifrostColors.Coral)
+        }
         OutlinedButton(onClick = openCompare, modifier = Modifier.fillMaxWidth()) {
-            Text("OPEN A/B COMPARISON")
+            Text("OPEN FULL A/B COMPARISON")
         }
     }
 }
