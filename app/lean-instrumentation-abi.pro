@@ -22,16 +22,21 @@
 -keep class androidx.compose.runtime.** { *; }
 -keep class androidx.compose.ui.** { *; }
 
-# M1.4g: the separate Compose UI test APK calls Arrangement.INSTANCE (default
-# Column/Row arrangement). The minified target APK had R8-renamed
-# androidx.compose.foundation.layout.Arrangement -> q.i and stripped its
-# INSTANCE field; this produced NoSuchFieldError q.i.INSTANCE in the focused
-# editor test. Release/releaseQa mapping independently confirms q.i is
-# androidx.compose.foundation.layout.Arrangement.
-# Keep the object + nested layout interfaces in leanDebug ONLY; do not keep
-# unrelated Foundation Text or all Foundation UI, and do not alter production.
--keep class androidx.compose.foundation.layout.Arrangement { *; }
--keep class androidx.compose.foundation.layout.Arrangement$* { *; }
+# M1.4g: independent Compose androidTest code directly compiles against
+# Layout's public ABI (Arrangement.INSTANCE, ColumnScopeInstance, row/column
+# scopes, default-layout facades) and Foundation Text's BasicTextField ABI.
+# The separate test APK is R8-optimized *independently* of the leanDebug
+# target. Target shrinking had removed Arrangement.INSTANCE (mapping:
+# Arrangement -> q.i) and next removed ColumnScopeInstance, while the
+# separately compiled test still referenced them. Keeping only Arrangement
+# left a different missing class on the next run.
+#
+# Preserve only these TWO Foundation subpackages for the testable leanDebug
+# target, rather than repeatedly chasing one missing field/class at a time.
+# This QA APK is NOT a release artifact. Production release and releaseQa use
+# only proguard-rules.pro and retain their existing full R8 shrinking.
+-keep class androidx.compose.foundation.layout.** { *; }
+-keep class androidx.compose.foundation.text.** { *; }
 
 # Separately compiled Android instrumentation calls Heimdall classes and
 # constructors by their original binary names. In optimized QA only, retain
