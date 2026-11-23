@@ -20,6 +20,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -114,6 +115,7 @@ internal fun SessionHistoryPanel(
     val foundation = state.detail?.duko
     val policyCaps = state.detail?.caps
     val reading = state.reading
+    val tagDraftStates = rememberSaveableStateHolder()
 
     val chooser = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/csv")
@@ -183,7 +185,9 @@ internal fun SessionHistoryPanel(
                     if (section == SessionDetailSection.CONDITIONS.name) {
                         Text("Recorded settings are user-declared, not verified hardware state.",
                             color = Subtle)
-                        DukoTagEditor(sessionId = session.id)
+                        tagDraftStates.SaveableStateProvider("tags-${session.id}") {
+                            DukoTagEditor(sessionId = session.id)
+                        }
                     }
                     if (section == SessionDetailSection.EXPORT.name) {
                         Text("Export the original completed run as CSV. No raw samples " +
