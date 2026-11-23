@@ -16,8 +16,11 @@ workflow-continuity milestone*, **not** a claim of Release Candidate 1.
    exact requested row, rather than opening an arbitrary cached session.
    A missing row is reported; no guessed ID is substituted.
 3. **Out-of-band recording:** Sessions has explicit `REFRESH` for recordings
-   saved by Quick Settings/HUD or another application lifecycle. One refresh
-   job is active at a time; previous reads are cancelled on forced refresh.
+   saved by Quick Settings/HUD or another application lifecycle. Compare
+   likewise offers `REFRESH SAVED RUNS` when its candidate list was cached
+   before a new recording; an explicit refresh invalidates stale A/B analysis,
+   not the selected runs or a frozen SAF export. One refresh job is active at
+   a time; previous reads are cancelled on forced refresh.
 4. **Historical archive discovery:** Both Sessions and Compare load the newest
    20 completed sessions initially. Touching `LOAD OLDER...` expands the
    read limit in increments of 20 up to 100, respecting the existing
@@ -48,7 +51,8 @@ Run the exact HEAD through the existing workflow:
 - New M1.6 integration tests:
   - **stop-to-review:** exact newly finished ID opens and retains its DUKO
     destination through Activity recreation, even with older cached history
-  - **manual reload:** a newly saved Quick Settings session appears after tap
+  - **manual reload:** a newly saved Quick Settings session appears in Sessions
+    or Compare after the respective refresh action
   - **rapid compare:** two fast taps execute exactly one bounded A/B comparison
   - **history pagination:** older sessions load in batches while expansion
     stays anchored to the original session
