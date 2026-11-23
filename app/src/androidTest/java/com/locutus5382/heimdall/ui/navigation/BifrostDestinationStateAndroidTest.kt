@@ -46,6 +46,25 @@ class BifrostDestinationStateAndroidTest {
         compose.onNodeWithText("A=41").assertExists()
     }
 
+    @Test fun sessionsCanNavigateDirectlyToComparison() {
+        compose.setContent {
+            HeimdallShell(
+                dashboard = { _, _ -> Text("DASHBOARD CONTENT") },
+                sessions = { openTab ->
+                    Button(onClick = { openTab(BifrostTab.COMPARE) }) {
+                        Text("USE SAVED RUN AS BASELINE")
+                    }
+                },
+                compare = { Text("COMPARE CONTENT") },
+                bladeContent = { _, _, _ -> Text("BLADE CONTENT") },
+            )
+        }
+        compose.onNodeWithText("Sessions").performClick()
+        compose.onNodeWithText("USE SAVED RUN AS BASELINE").performClick()
+        compose.onNodeWithText("COMPARE CONTENT").assertExists()
+        compose.onNodeWithText("Compare").assertIsSelected()
+    }
+
     @Composable
     private fun TestCompareEditor() {
         var selected by rememberSaveable { mutableStateOf("A=NONE") }
