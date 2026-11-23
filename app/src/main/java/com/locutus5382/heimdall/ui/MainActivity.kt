@@ -109,7 +109,12 @@ class MainActivity : ComponentActivity() {
                             onDiagnostics = { openBlade(BifrostBlade.DIAGNOSTICS) },
                         )
                     },
-                    sessions = { BifrostSessionsScreen(refreshKey, sessionsModel) },
+                    sessions = { openTab ->
+                        BifrostSessionsScreen(refreshKey, sessionsModel) { id ->
+                            compareModel.selectA(id)
+                            openTab(BifrostTab.COMPARE)
+                        }
+                    },
                     compare = { BifrostCompareScreen(refreshKey, compareModel) },
                     bladeContent = { blade, _, openTab ->
                         when (blade) {
@@ -147,14 +152,19 @@ class MainActivity : ComponentActivity() {
 
 /** One independently scrollable session surface; no second comparison panel. */
 @Composable
-private fun BifrostSessionsScreen(refreshKey: Long, model: SessionScreenViewModel) {
+private fun BifrostSessionsScreen(
+    refreshKey: Long,
+    model: SessionScreenViewModel,
+    onCompare: (Long) -> Unit,
+) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(horizontal = 16.dp, vertical = 18.dp),
         verticalArrangement = Arrangement.spacedBy(13.dp)) {
         Text("SESSIONS  /  DUKO", color = BifrostColors.Signal)
         Text("Review saved telemetry, evidence quality and session exports.",
             color = BifrostColors.Muted)
-        SessionHistoryPanel(refreshKey = refreshKey, model = model)
+        SessionHistoryPanel(refreshKey = refreshKey, model = model,
+            onCompare = onCompare)
     }
 }
 
