@@ -112,6 +112,10 @@ class MainActivity : ComponentActivity() {
                             onHudStudio = { openBlade(BifrostBlade.HUD_STUDIO) },
                             onSessions = { openTab(BifrostTab.SESSIONS) },
                             onDiagnostics = { openBlade(BifrostBlade.DIAGNOSTICS) },
+                            onReviewSession = { id ->
+                                sessionsModel.focusSession(id)
+                                openTab(BifrostTab.SESSIONS)
+                            },
                         )
                     },
                     sessions = { openTab ->
