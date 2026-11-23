@@ -56,7 +56,7 @@ class DukoM3cConfidenceAndroidTest {
         runBlocking {
             val (id, analyzer) = record("duko_m3c_completed.db", false)
             val result = requireNotNull(analyzer.analyze(id))
-            assertEquals(2, result.analysisVersion)
+            assertEquals(3, result.analysisVersion)
             assertEquals(DukoSessionOutcome.COMPLETED, result.integrity.outcome)
             assertEquals(DukoEvidence.SUPPORTED, result.energy.evidence)
             assertEquals(DukoEvidence.SUPPORTED,
