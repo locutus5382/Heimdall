@@ -21,6 +21,9 @@ import kotlinx.coroutines.launch
 
 internal interface SessionScreenDataSource {
     suspend fun recent(): List<SavedSession>
+    // Legacy test doubles may implement only recent(); production overrides
+    // this bounded lookup to expand the local archive incrementally.
+    suspend fun recent(limit: Int): List<SavedSession> = recent()
     suspend fun details(id: Long): SessionDetail
     suspend fun exportCsv(id: Long, uri: Uri): Long
 }
@@ -32,6 +35,7 @@ internal class SessionScreenRepository(context: Context) : SessionScreenDataSour
     private val tags = DukoSessionContextStore(app)
 
     override suspend fun recent(): List<SavedSession> = archive.recent()
+    override suspend fun recent(limit: Int): List<SavedSession> = archive.recent(limit)
     override suspend fun details(id: Long): SessionDetail {
         val overview = archive.overview(id)
         val report = archive.dukoFoundation(id)
@@ -56,6 +60,7 @@ internal data class SessionDetail(
 internal data class SessionsUiState(
     val history: List<SavedSession> = emptyList(),
     val loadingHistory: Boolean = false,
+    val hasMoreHistory: Boolean = false,
     val expandedId: Long? = null,
     val detail: SessionDetail? = null,
     val reading: Boolean = false,
@@ -77,6 +82,15 @@ internal class SessionScreenViewModel(private val repo: SessionScreenDataSource)
     private var loadJob: Job? = null
     private var generation = 0L
     private var requestedFocusId: Long? = null
+    private var historyLimit = 20
+
+    /** An explicit touch action; never fetch all historical rows at startup. */
+    fun loadOlder() {
+        val current = mutable.value
+        if (current.loadingHistory || !current.hasMoreHistory || historyLimit >= 100) return
+        historyLimit = (historyLimit + 20).coerceAtMost(100)
+        refresh(refreshKey ?: 0L, force = true)
+    }
 
     /**
      * Open the exact newly finished session, even if a prior history list
@@ -100,10 +114,11 @@ internal class SessionScreenViewModel(private val repo: SessionScreenDataSource)
         loadJob = viewModelScope.launch {
             mutable.update { it.copy(loadingHistory = true) }
             try {
-                val rows = repo.recent()
+                val rows = repo.recent(historyLimit)
                 mutable.update { old ->
                     val stillExpanded = old.expandedId?.takeIf { id -> rows.any { it.id == id } }
                     old.copy(history = rows, loadingHistory = false,
+                        hasMoreHistory = rows.size >= historyLimit && historyLimit < 100,
                         expandedId = stillExpanded,
                         detail = if (stillExpanded != null) old.detail else null,
                         notice = null)
