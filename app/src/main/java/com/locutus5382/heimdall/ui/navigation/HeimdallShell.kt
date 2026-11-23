@@ -45,6 +45,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.key
@@ -143,6 +144,7 @@ fun HeimdallShell(
                                 .background(if(selected) BifrostColors.Cobalt
                                     else Color.Transparent, RoundedCornerShape(7.dp))
                                 .clickable(role = Role.Tab) { openTab(option) }
+                                .semantics { this.selected = selected }
                                 .padding(horizontal = 8.dp, vertical = 13.dp),
                             contentAlignment = Alignment.Center
                         ) {
