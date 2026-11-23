@@ -61,7 +61,7 @@ import kotlinx.coroutines.delay
 fun HeimdallShell(
     dashboard: @Composable (openBlade: (BifrostBlade) -> Unit,
         openTab: (BifrostTab) -> Unit) -> Unit,
-    sessions: @Composable () -> Unit,
+    sessions: @Composable (openTab: (BifrostTab) -> Unit) -> Unit,
     compare: @Composable () -> Unit,
     bladeContent: @Composable (blade: BifrostBlade,
         closeBlade: () -> Unit, openTab: (BifrostTab) -> Unit) -> Unit,
@@ -162,7 +162,7 @@ fun HeimdallShell(
                 screenState.SaveableStateProvider(tab.name) {
                     when (tab) {
                         BifrostTab.DASHBOARD -> dashboard(openBlade, openTab)
-                        BifrostTab.SESSIONS -> sessions()
+                        BifrostTab.SESSIONS -> sessions(openTab)
                         BifrostTab.COMPARE -> compare()
                     }
                 }
