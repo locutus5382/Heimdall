@@ -189,6 +189,13 @@ private fun BifrostCompareScreen(refreshKey: Long, model: CompareScreenViewModel
         Text("COMPARE  /  DUKO A–B", color = BifrostColors.Signal)
         Text("Select two real recordings. Results describe device telemetry, not FPS.",
             color = BifrostColors.Muted)
+        OutlinedButton(
+            onClick = model::reload,
+            enabled = !state.loading && !state.writing && state.pendingExport == null,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("REFRESH SAVED RUNS")
+        }
         if (state.loading) Text("Loading saved runs…", color = BifrostColors.Muted)
         if (state.issue != null) Text(state.issue.orEmpty(), color = BifrostColors.Coral)
         if (state.sessions.size < 2) {
