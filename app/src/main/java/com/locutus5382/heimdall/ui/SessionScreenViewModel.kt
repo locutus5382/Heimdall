@@ -146,8 +146,10 @@ internal class SessionScreenViewModel(private val repo: SessionScreenDataSource)
             mutable.update { it.copy(notice = "Export request expired; no session was written.") }
             return
         }
+        // Block another SAF request before coroutine dispatch, including
+        // a rapid second tap during the first main-loop iteration.
+        mutable.update { it.copy(exporting = true, notice = "Exporting CSV…") }
         viewModelScope.launch {
-            mutable.update { it.copy(exporting = true) }
             try {
                 val count = repo.exportCsv(id, destination)
                 mutable.update { it.copy(notice = "Session #$id exported: $count samples.") }
