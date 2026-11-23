@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.OutlinedTextField
@@ -14,6 +15,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -98,6 +102,7 @@ internal fun DukoComparisonPanel(model: CompareScreenViewModel) {
     val busy = state.busy
     val error = state.issue
     val exportStatus = state.exportStatus
+    var editRuns by rememberSaveable { mutableStateOf(true) }
 
     val textPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/plain")
@@ -111,8 +116,20 @@ internal fun DukoComparisonPanel(model: CompareScreenViewModel) {
             .padding(13.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text("BASELINE · CANDIDATE", color = AbAmber)
-        Text("Select two distinct completed sessions. User tags do not verify hardware settings.", color = AbSubtle)
+        Text("DUKO / A–B", color = AbAmber, fontWeight = FontWeight.SemiBold)
+        Text("A #${a ?: "—"} (baseline)   ·   B #${b ?: "—"} (candidate)",
+            color = AbInk, fontSize = 15.sp)
+        Text("Compare measured device telemetry—not FPS or game speed.",
+            color = AbSubtle)
+        OutlinedButton(
+            onClick = { editRuns = !editRuns },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        ) { Text(if (editRuns) "HIDE RUN & WINDOW SETTINGS" else
+            "EDIT RUNS & ANALYSIS WINDOWS") }
+        if (editRuns) {
+        Text("SELECT TWO RECORDED SESSIONS", color = AbAmber)
+        Text("User tags describe declared conditions; they do not verify the hardware.",
+            color = AbSubtle)
         sessions.forEach { session ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("#${session.id}", color = AbInk, modifier = Modifier.weight(1f))
@@ -150,9 +167,12 @@ internal fun DukoComparisonPanel(model: CompareScreenViewModel) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
                 enabled = state.canCompare,
+                modifier = Modifier.heightIn(min = 48.dp),
                 onClick = { model.compare() }
             ) { Text("COMPARE") }
-            OutlinedButton(onClick = { model.clear() }) { Text("CLEAR") }
+            OutlinedButton(onClick = { model.clear() },
+                modifier = Modifier.heightIn(min = 48.dp)) { Text("CLEAR") }
+        }
         }
         if (busy) Text("Analyzing recorded evidence…", color = AbSubtle)
         if (error != null) Text(error.orEmpty(), color = AbAmber)
@@ -162,7 +182,15 @@ internal fun DukoComparisonPanel(model: CompareScreenViewModel) {
                 Text("A: ${wa.startMs}–${wa.endMs} ms (${wa.durationMs} ms)", color = AbSubtle)
                 Text("B: ${wb.startMs}–${wb.endMs} ms (${wb.durationMs} ms)", color = AbSubtle)
             }
-            Text("A #${result.sessionA} → B #${result.sessionB} · ${result.quality.name}", color = AbInk)
+            Text("COMPARISON SUMMARY", color = AbAmber, fontWeight = FontWeight.Bold)
+            Text("A #${result.sessionA} → B #${result.sessionB} · ${result.quality.name.replace('_', ' ')}",
+                color = AbInk)
+            val qualified = result.metrics.values.count {
+                it.quality != DukoComparisonQuality.NOT_COMPARABLE
+            }
+            Text("${qualified} of ${result.metrics.size} reported metrics permit a " +
+                "qualified comparison. Interpret each metric's evidence separately.",
+                color = AbSubtle)
 
             selectedWindows?.let { (wa, wb) ->
                 Text("DUKO REPORT · comparison-only · saved locally", color = AbAmber)
