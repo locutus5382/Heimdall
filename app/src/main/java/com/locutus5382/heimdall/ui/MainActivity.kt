@@ -76,17 +76,18 @@ class MainActivity : ComponentActivity() {
                 }
             }
             val stop: () -> Unit = { dashboardModel.stop() }
-            val toggleHud: () -> Unit = {
-                if (dashboardModel.toggleHud()) {
-                    try {
-                        startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                            Uri.parse("package:$packageName")))
-                    } catch (error: Exception) {
-                        dashboardModel.reportIssue(
-                            "Overlay permission screen unavailable: " + error.javaClass.simpleName
-                        )
-                    }
+            val requestOverlayPermission: () -> Unit = {
+                try {
+                    startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:$packageName")))
+                } catch (error: Exception) {
+                    dashboardModel.reportIssue(
+                        "Overlay permission screen unavailable: " + error.javaClass.simpleName
+                    )
                 }
+            }
+            val toggleHud: () -> Unit = {
+                if (dashboardModel.toggleHud()) requestOverlayPermission()
             }
             val refreshKey = (state.status as? RecorderStatus.Finished)?.sessionId ?: 0L
             HeimdallTheme {
@@ -116,7 +117,13 @@ class MainActivity : ComponentActivity() {
                             // Editing an existing session's tags belongs to Sessions.
                             // Never silently switch targets while recording is active.
                             BifrostBlade.SETUP -> DukoTagEditor()
-                            BifrostBlade.HUD_STUDIO -> HudStudioPanel()
+                            BifrostBlade.HUD_STUDIO -> HudStudioPanel(
+                                hudEnabled = state.hudEnabled,
+                                overlayPermission = state.overlayPermission,
+                                recorderStatus = state.status,
+                                onToggleHud = toggleHud,
+                                onRequestOverlayPermission = requestOverlayPermission,
+                            )
                             BifrostBlade.RUN_PICKER -> BifrostRunPicker(
                                 refreshKey = refreshKey,
                                 model = compareModel,
