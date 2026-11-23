@@ -131,6 +131,33 @@ class BifrostM16WorkflowAndroidTest {
         assertFalse(model.ui.value.hasMoreHistory)
     }
 
+    @Test fun manualComparisonRefreshFindsNewRunsSavedOutsideTheApp() {
+        val rows = AtomicReference(listOf(old))
+        val source = object : ComparisonDataSource {
+            override suspend fun recent() = rows.get()
+            override suspend fun recent(limit: Int) = rows.get().take(limit)
+            override suspend fun bounds(id: Long) = DukoWindow(0L, 5000L)
+            override suspend fun compare(a: Long, b: Long, wa: DukoWindow, wb: DukoWindow):
+                DukoComparisonReport? = null
+            override suspend fun write(uri: Uri, payload: String) = Unit
+        }
+        lateinit var model: CompareScreenViewModel
+        activity.scenario.onActivity { host ->
+            model = ViewModelProvider(host, CompareScreenViewModel.Factory(source))
+                .get(CompareScreenViewModel::class.java)
+            model.refresh(0L)
+        }
+        waitFor("single compare candidate") { model.ui.value.sessions.size == 1 }
+        rows.set(listOf(fresh, old))
+        activity.scenario.onActivity { model.reload() }
+        waitFor("new A/B candidate") { model.ui.value.sessions.size == 2 }
+        activity.scenario.onActivity {
+            model.selectA(41L)
+            model.selectB(42L)
+        }
+        assertTrue(model.ui.value.canCompare)
+    }
+
     @Test fun comparisonArchivePagingKeepsSelectedBaselineAndCandidate() {
         val all = (60L downTo 1L).map { id ->
             SavedSession(id, id * 1000L, id * 1000L + 5000L, 6L)
