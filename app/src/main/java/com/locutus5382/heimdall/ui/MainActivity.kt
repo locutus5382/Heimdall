@@ -112,9 +112,10 @@ class MainActivity : ComponentActivity() {
                     compare = { BifrostCompareScreen(refreshKey, compareModel) },
                     bladeContent = { blade, _, openTab ->
                         when (blade) {
-                            BifrostBlade.SETUP -> DukoTagEditor(
-                                sessionId = (state.status as? RecorderStatus.Recording)?.sessionId
-                            )
+                            // Dashboard SETUP always configures the NEXT session.
+                            // Editing an existing session's tags belongs to Sessions.
+                            // Never silently switch targets while recording is active.
+                            BifrostBlade.SETUP -> DukoTagEditor()
                             BifrostBlade.HUD_STUDIO -> HudStudioPanel()
                             BifrostBlade.RUN_PICKER -> BifrostRunPicker(
                                 refreshKey = refreshKey,
