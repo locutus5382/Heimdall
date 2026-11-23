@@ -85,6 +85,10 @@ fun HeimdallShell(
     val navFocus = remember { FocusRequester() }
     val closeFocus = remember { FocusRequester() }
     var navFocused by remember { mutableStateOf(false) }
+    // The first controller key must work on a freshly opened handheld app,
+    // without asking the player to touch a tab. Once an editor is focused,
+    // only the nav header owns shortcuts; typing remains unmodified.
+    LaunchedEffect(Unit) { navFocus.requestFocus() }
     BackHandler(enabled = blade != null || tab != BifrostTab.DASHBOARD) {
         if (blade != null) closeBlade() else openTab(BifrostTab.DASHBOARD)
     }
