@@ -54,7 +54,7 @@ internal fun DiagnosticsPanel(model: DiagnosticsViewModel) {
                 onClick = model::inspect,
             ) {
                 Text(if (state.inspecting) "INSPECTING…" else
-                    if (state.snapshot == null) "RUN INSPECTION" else "REFRESH")
+                    if (state.snapshot == null) "RUN DIAGNOSTICS" else "REFRESH DIAGNOSTICS")
             }
             OutlinedButton(
                 modifier = Modifier.weight(1f),
