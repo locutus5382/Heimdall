@@ -99,6 +99,21 @@ internal class CompareScreenViewModel(private val repo: ComparisonDataSource) : 
         }
     }
 
+    /**
+     * Explicitly refresh A/B candidates after a recording or tag edit outside
+     * this screen. Clear stale analysis, preserve selected IDs and frozen SAF
+     * exports, and let the user recompute against the latest evidence.
+     */
+    fun reload() {
+        if (mutable.value.pendingExport != null || mutable.value.writing) return
+        generation++
+        compareJob?.cancel()
+        mutable.update { it.copy(busy = false, report = null,
+            selectedWindows = null,
+            exportStatus = "Saved runs refreshed. Recompare to inspect current evidence.") }
+        refresh(refreshKey ?: 0L, force = true)
+    }
+
     fun loadOlder() {
         val current = mutable.value
         if (current.loading || !current.hasMoreSessions || historyLimit >= 100) return
