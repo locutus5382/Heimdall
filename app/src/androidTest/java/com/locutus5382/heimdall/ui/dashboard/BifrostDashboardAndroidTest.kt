@@ -97,6 +97,9 @@ class BifrostDashboardAndroidTest {
             observedElapsedMs = SystemClock.elapsedRealtime(),
             cpuLoadPercent = 63.0,
             batteryLevelPercent = 72,
+            batteryTemperatureC = null,
+            availableMemoryMiB = 2048,
+            cpuClockMHz = null,
             gpuClockMHz = 675,
         )
         compose.setContent {
