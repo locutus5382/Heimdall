@@ -21,6 +21,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -39,6 +41,26 @@ private val DukoGold = Color(0xFFF0BD62)
 private enum class TagEditorPage(val label: String) {
     WORKLOAD("GAME / DRIVER"), DEVICE("DEVICE SETTINGS"), NOTES("NOTES / SAVE")
 }
+
+/** Persist the unsaved fields when the Sessions panel switches tabs/rotates. */
+private val tagEditorSaver = listSaver<MutableState<DukoSessionContext>, String>(
+    save = { state -> with(state.value) {
+        listOf(game, emulator, graphicsDriver, performanceMode, fanProfile,
+            clusterTuneProfile, clusterTuneEnabled?.toString() ?: "?",
+            tuningTool, notes, origin.name)
+    } },
+    restore = { p ->
+        mutableStateOf(DukoSessionContext(
+            game = p[0], emulator = p[1], graphicsDriver = p[2],
+            performanceMode = p[3], fanProfile = p[4],
+            clusterTuneProfile = p[5],
+            clusterTuneEnabled = when (p[6]) { "true" -> true; "false" -> false; else -> null },
+            tuningTool = p[7], notes = p[8],
+            origin = runCatching { MeasurementOrigin.valueOf(p[9]) }
+                .getOrDefault(MeasurementOrigin.UNKNOWN)
+        ))
+    }
+)
 
 /** Curated user-provided Obtainium emulation catalog; these are labels, not detected apps. */
 private val emulatorCatalog = listOf(
@@ -91,21 +113,25 @@ internal fun DukoTagEditor(sessionId: Long? = null) {
     val app = LocalContext.current.applicationContext
     val store = remember(app) { DukoSessionContextStore(app) }
     val scope = rememberCoroutineScope()
-    var tags by remember(sessionId) { mutableStateOf(store.readDraft()) }
-    var nextOnly by remember(sessionId) {
+    var tags by rememberSaveable(sessionId, saver = tagEditorSaver) {
+        mutableStateOf(store.readDraft())
+    }
+    var nextOnly by rememberSaveable(sessionId) {
         mutableStateOf(sessionId == null && store.isNextOnly())
     }
-    var message by remember(sessionId) { mutableStateOf<String?>(null) }
+    var message by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
     var step by rememberSaveable(sessionId) { mutableStateOf(TagEditorPage.WORKLOAD.name) }
-    var edited by remember(sessionId) { mutableStateOf(false) }
-    var loading by remember(sessionId) { mutableStateOf(sessionId != null) }
+    var edited by rememberSaveable(sessionId) { mutableStateOf(false) }
+    var loading by rememberSaveable(sessionId) { mutableStateOf(sessionId != null) }
     LaunchedEffect(sessionId) {
-        if (sessionId != null) {
+        if (sessionId != null && !edited) {
             loading = true
             try { tags = store.get(sessionId) }
             catch (e: Exception) {
                 message = "Could not read session tags: ${e.javaClass.simpleName}"
             } finally { loading = false }
+        } else {
+            loading = false
         }
     }
 
