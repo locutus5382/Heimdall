@@ -71,6 +71,7 @@ fun BifrostDashboard(
     onHudStudio: () -> Unit,
     onSessions: () -> Unit,
     onDiagnostics: () -> Unit,
+    onReviewSession: ((Long) -> Unit)? = null,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= 680.dp
@@ -143,7 +144,10 @@ fun BifrostDashboard(
 
             if (status is RecorderStatus.Finished) {
                 OutlinedButton(
-                    onClick = onSessions,
+                    onClick = {
+                        if (onReviewSession != null) onReviewSession(status.sessionId)
+                        else onSessions()
+                    },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                 ) {
                     Text("REVIEW SAVED SESSION #${status.sessionId}")
