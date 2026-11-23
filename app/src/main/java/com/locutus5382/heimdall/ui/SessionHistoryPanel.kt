@@ -124,9 +124,20 @@ internal fun SessionHistoryPanel(
     LaunchedEffect(refreshKey) { model.refresh(refreshKey) }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("SAVED RUNS", color = Amber)
-        if (history.isEmpty()) Text(
-            "Your completed recordings will appear here.",
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("SAVED RUNS", modifier = Modifier.weight(1f), color = Amber)
+            OutlinedButton(
+                onClick = model::reload,
+                enabled = !state.loadingHistory && !state.exporting,
+                modifier = Modifier.heightIn(min = 48.dp)
+            ) { Text(if (state.loadingHistory) "LOADING…" else "REFRESH") }
+        }
+        if (history.isEmpty() && !state.loadingHistory) Text(
+            "No completed recordings yet. Start a recording on Dashboard " +
+                "or use REFRESH after saving from Quick Settings or the HUD.",
             color = Subtle
         )
         // Compare has one dedicated tab; never mount a second A/B panel here.
