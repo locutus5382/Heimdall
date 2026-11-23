@@ -37,6 +37,12 @@
 # only proguard-rules.pro and retain their existing full R8 shrinking.
 -keep class androidx.compose.foundation.layout.** { *; }
 -keep class androidx.compose.foundation.text.** { *; }
+# M1.6: independently compiled touch-first test APKs call
+# Modifier.verticalScroll via androidx.compose.foundation.ScrollKt.
+# R8 stripped that facade from leanDebug because target app inlined it,
+# causing 3/85 optimized tests to fail with NoClassDefFoundError.
+# Preserve the test ABI *only* in leanDebug; release remains fully optimized.
+-keep class androidx.compose.foundation.ScrollKt { *; }
 
 # M1.4g: after Layout/Text were kept, the same independently compiled
 # controller-focus test revealed Material3.Text's compiled static function
