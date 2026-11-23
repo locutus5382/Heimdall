@@ -114,11 +114,15 @@ internal class SessionScreenViewModel(private val repo: SessionScreenDataSource)
         loadJob = viewModelScope.launch {
             mutable.update { it.copy(loadingHistory = true) }
             try {
-                val rows = repo.recent(historyLimit)
+                // Read one extra row (up to the repository's 100-row cap).
+                // An exact full page does NOT prove another page exists.
+                val retrieved = repo.recent((historyLimit + 1).coerceAtMost(100))
+                val hasNext = historyLimit < 100 && retrieved.size > historyLimit
+                val rows = retrieved.take(historyLimit)
                 mutable.update { old ->
                     val stillExpanded = old.expandedId?.takeIf { id -> rows.any { it.id == id } }
                     old.copy(history = rows, loadingHistory = false,
-                        hasMoreHistory = rows.size >= historyLimit && historyLimit < 100,
+                        hasMoreHistory = hasNext,
                         expandedId = stillExpanded,
                         detail = if (stillExpanded != null) old.detail else null,
                         notice = null)
