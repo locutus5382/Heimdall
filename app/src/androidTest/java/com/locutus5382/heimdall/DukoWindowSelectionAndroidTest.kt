@@ -51,7 +51,7 @@ class DukoWindowSelectionAndroidTest {
             val requested = DukoWindow(start + 2_000L, start + 6_000L)
             val selected = requireNotNull(analyzer.analyze(session, requested))
             assertEquals(requested, selected.window)
-            assertEquals(2, selected.analysisVersion)
+            assertEquals(3, selected.analysisVersion)
             assertEquals(30.0, selected.integrity.metrics
                 .getValue(DukoMetric.CPU_LOAD).timeWeightedMean!!, 1e-9)
             assertEquals(3, selected.integrity.metrics
