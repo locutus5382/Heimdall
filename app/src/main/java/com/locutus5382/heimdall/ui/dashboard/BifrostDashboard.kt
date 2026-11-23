@@ -111,8 +111,21 @@ fun BifrostDashboard(
                 }
             } else {
                 RecorderCard(status, issue, commandPending, onStart, onStop, Modifier.fillMaxWidth())
-                Text("LIVE TELEMETRY", color = BifrostColors.Muted,
-                    fontSize = 11.sp, letterSpacing = 1.3.sp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("LIVE TELEMETRY", color = BifrostColors.Muted,
+                        fontSize = 11.sp, letterSpacing = 1.3.sp,
+                        modifier = Modifier.weight(1f))
+                    val age = last?.observedElapsedMs?.let {
+                        ((SystemClock.elapsedRealtime() - it).coerceAtLeast(0L) / 1000L)
+                    }
+                    Text(when {
+                        last == null -> "WAITING FOR SAMPLES"
+                        age == null -> "AGE UNKNOWN"
+                        age > 8L -> "LAST UPDATE $age s AGO"
+                        else -> "LATEST SAMPLE"
+                    }, color = if (age != null && age > 8L)
+                        BifrostColors.Amber else BifrostColors.Muted, fontSize = 10.sp)
+                }
                 MetricsGrid(last, false)
             }
 
@@ -297,18 +310,28 @@ private fun RecordingDuration(startElapsedMs: Long?): String? {
 
 @Composable
 private fun MetricsGrid(sample: DeviceSample?, wide: Boolean) {
+    // This grid has the SAME source as the foreground recorder/HUD. Never
+    // turn a missing sensor into zero or imply that these are frame rates.
     val cells = listOf(
-        "CPU LOAD" to sample?.cpuLoadPercent?.let { String.format(Locale.US, "%.0f%%", it) },
+        "CPU LOAD" to sample?.cpuLoadPercent?.takeIf { it.isFinite() }
+            ?.let { String.format(Locale.US, "%.0f%%", it) },
+        "GPU LOAD" to sample?.gpuLoadPercent?.takeIf { it.isFinite() }
+            ?.let { String.format(Locale.US, "%.0f%%", it) },
+        "CPU CLOCK" to sample?.cpuClockMHz?.let { "$it MHz" },
         "GPU CLOCK" to sample?.gpuClockMHz?.let { "$it MHz" },
         "BATTERY" to sample?.batteryLevelPercent?.let { "$it%" },
-        "BAT. TEMP" to sample?.batteryTemperatureC?.let {
-            String.format(Locale.US, "%.1f°C", it)
-        },
-        "TOP CPU CLOCK" to sample?.cpuClockMHz?.let { "$it MHz" },
+        "BATTERY TEMP" to sample?.batteryTemperatureC?.takeIf { it.isFinite() }
+            ?.let { String.format(Locale.US, "%.1f°C", it) },
+        "CPU TEMP" to sample?.cpuTemperatureC?.takeIf { it.isFinite() }
+            ?.let { String.format(Locale.US, "%.1f°C", it) },
+        "GPU TEMP" to sample?.gpuTemperatureC?.takeIf { it.isFinite() }
+            ?.let { String.format(Locale.US, "%.1f°C", it) },
         "AVAILABLE RAM" to sample?.availableMemoryMiB?.let { "$it MiB" },
     )
     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        cells.chunked(if (wide) 2 else 3).forEach { row ->
+        // Two columns on a narrow portrait screen; three on a handheld in
+        // landscape. The previous 3-narrow/2-wide arrangement clipped values.
+        cells.chunked(if (wide) 3 else 2).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 row.forEach { (label, value) ->
                     Column(Modifier.weight(1f)
