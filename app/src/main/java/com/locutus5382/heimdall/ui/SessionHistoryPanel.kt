@@ -374,6 +374,13 @@ internal fun SessionHistoryPanel(
                 }
             }
         }
+        if (state.hasMoreHistory) {
+            OutlinedButton(
+                onClick = model::loadOlder,
+                enabled = !state.loadingHistory,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+            ) { Text("LOAD OLDER SESSIONS") }
+        }
         if (state.loadingHistory) Text("Refreshing saved runs…", color = Subtle)
         if (state.exporting) Text("Exporting session CSV…", color = Subtle)
         if (notice != null) Text(notice, color = Amber)
