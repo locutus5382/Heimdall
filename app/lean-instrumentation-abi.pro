@@ -50,6 +50,9 @@
 # setContent extension from their test APK, even though optimized app code
 # normally calls an R8-renamed copy. Keep the public bridge in the QA target.
 # A missing binary name caused NoSuchMethodError on ComponentActivityKt.
+# Preserve the receiver type in the independently compiled setContent ABI.
+# Keeping only the facade is insufficient if R8 renames ComponentActivity.
+-keep class androidx.activity.ComponentActivity { *; }
 -keep class androidx.activity.compose.ComponentActivityKt { *; }
 
 # M1.3 tests instantiate Activity-scoped ViewModels through the *public*
