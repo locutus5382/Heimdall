@@ -141,6 +141,13 @@ internal fun DukoComparisonPanel(model: CompareScreenViewModel) {
                 }
             }
         }
+        if (state.hasMoreSessions) {
+            OutlinedButton(
+                onClick = model::loadOlder,
+                enabled = !state.loading,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            ) { Text("LOAD OLDER RUNS") }
+        }
         Text("Analysis windows · each recording is bounded independently", color = AbSubtle)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { model.cycleA() }) { Text("A: " + presetA.label) }
