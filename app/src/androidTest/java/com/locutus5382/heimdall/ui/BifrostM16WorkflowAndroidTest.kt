@@ -100,6 +100,46 @@ class BifrostM16WorkflowAndroidTest {
         assertEquals(42L, model.ui.value.history.first().id)
     }
 
+    @Test fun exactlyFullFirstArchivePageDoesNotOfferPhantomNextPage() {
+        val twenty = (20L downTo 1L).map { id ->
+            SavedSession(id, id * 1000L, id * 1000L + 5000L, 6L)
+        }
+        val sessions = object : SessionScreenDataSource {
+            override suspend fun recent() = twenty
+            override suspend fun recent(limit: Int) = twenty.take(limit)
+            override suspend fun details(id: Long) = SessionDetail(
+                SessionOverview(null, null, null, null, null, 6L), null, null
+            )
+            override suspend fun exportCsv(id: Long, uri: Uri) = 6L
+        }
+        val comparisons = object : ComparisonDataSource {
+            override suspend fun recent() = twenty
+            override suspend fun recent(limit: Int) = twenty.take(limit)
+            override suspend fun bounds(id: Long) = DukoWindow(0L, 5000L)
+            override suspend fun compare(a: Long, b: Long, wa: DukoWindow, wb: DukoWindow):
+                DukoComparisonReport? = null
+            override suspend fun write(uri: Uri, payload: String) = Unit
+        }
+        lateinit var sessionModel: SessionScreenViewModel
+        lateinit var compareModel: CompareScreenViewModel
+        activity.scenario.onActivity { host ->
+            sessionModel = ViewModelProvider(host, SessionScreenViewModel.Factory(sessions))
+                .get(SessionScreenViewModel::class.java)
+            compareModel = ViewModelProvider(host, CompareScreenViewModel.Factory(comparisons))
+                .get(CompareScreenViewModel::class.java)
+            sessionModel.refresh(0L)
+            compareModel.refresh(0L)
+        }
+        waitFor("exactly twenty recorded sessions") {
+            sessionModel.ui.value.history.size == 20 &&
+                !sessionModel.ui.value.loadingHistory &&
+                compareModel.ui.value.sessions.size == 20 &&
+                !compareModel.ui.value.loading
+        }
+        assertFalse(sessionModel.ui.value.hasMoreHistory)
+        assertFalse(compareModel.ui.value.hasMoreSessions)
+    }
+
     @Test fun archivedSessionPagingPreservesExpandedRun() {
         val all = (60L downTo 1L).map { id ->
             SavedSession(id, id * 1000L, id * 1000L + 5000L, 6L)
