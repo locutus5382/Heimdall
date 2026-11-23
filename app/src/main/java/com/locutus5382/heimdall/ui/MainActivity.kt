@@ -120,7 +120,7 @@ class MainActivity : ComponentActivity() {
                     },
                     sessions = { openTab ->
                         BifrostSessionsScreen(refreshKey, sessionsModel) { id ->
-                            compareModel.selectA(id)
+                            compareModel.selectBaselineFromSessions(id)
                             openTab(BifrostTab.COMPARE)
                         }
                     },
