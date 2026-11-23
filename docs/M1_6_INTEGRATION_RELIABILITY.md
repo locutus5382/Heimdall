@@ -23,6 +23,9 @@ workflow-continuity milestone*, **not** a claim of Release Candidate 1.
    read limit in increments of 20 up to 100, respecting the existing
    `SessionArchive.recent(limit)` DB safeguard. Existing expanded session
    evidence and selected A/B IDs remain owned by their Activity ViewModels.
+   When an older Sessions row is explicitly sent to Compare as baseline A,
+   Compare expands its read up to that same 100-row cap before validating the
+   selection; it does not silently discard a valid older baseline.
    This is deliberately **not unbounded scrolling or full-database paging**.
 5. **A/B double-tap guard:** `CompareScreenViewModel.compare()` sets `busy`
    before dispatching its IO coroutine, so two touches cannot start two
@@ -50,6 +53,8 @@ Run the exact HEAD through the existing workflow:
   - **history pagination:** older sessions load in batches while expansion
     stays anchored to the original session
   - **A/B pagination:** comparison selection remains valid during paging
+  - **older linked baseline:** a Sessions row outside Compare's first 20
+    survives navigation and A/B selection after its archive refresh
   - **review CTA:** finished recorder UI forwards the actual session ID
 
 No PR merge, RC label, or public release on a merely passing build. An
