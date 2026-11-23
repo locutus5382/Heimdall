@@ -76,9 +76,24 @@ internal class SessionScreenViewModel(private val repo: SessionScreenDataSource)
     private var detailJob: Job? = null
     private var loadJob: Job? = null
     private var generation = 0L
+    private var requestedFocusId: Long? = null
 
-    fun refresh(key: Long) {
-        if (loaded && refreshKey == key) return
+    /**
+     * Open the exact newly finished session, even if a prior history list
+     * was cached before the Service's durable STOP. The destination opens
+     * only after the requested row appears in a refreshed SQLite snapshot.
+     */
+    fun focusSession(id: Long) {
+        if (id <= 0L) return
+        requestedFocusId = id
+        refresh(id, force = true)
+    }
+
+    /** Manual reload for sessions saved by the HUD/Quick Settings while open. */
+    fun reload() = refresh(refreshKey ?: 0L, force = true)
+
+    fun refresh(key: Long, force: Boolean = false) {
+        if (!force && loaded && refreshKey == key) return
         loaded = true
         refreshKey = key
         loadJob?.cancel()
@@ -93,6 +108,16 @@ internal class SessionScreenViewModel(private val repo: SessionScreenDataSource)
                         detail = if (stillExpanded != null) old.detail else null,
                         notice = null)
                 }
+                val focused = requestedFocusId
+                if (focused != null) {
+                    requestedFocusId = null
+                    if (rows.any { it.id == focused }) {
+                        openDetails(focused)
+                    } else {
+                        mutable.update { it.copy(notice =
+                            "Saved session #$focused is not in the archive yet. Refresh to retry.") }
+                    }
+                }
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (e: Exception) {
@@ -103,13 +128,19 @@ internal class SessionScreenViewModel(private val repo: SessionScreenDataSource)
     }
 
     fun toggle(id: Long) {
+        if (id <= 0L || mutable.value.history.none { it.id == id }) return
+        if (mutable.value.expandedId == id) {
+            generation++
+            detailJob?.cancel()
+            mutable.update { it.copy(expandedId = null, detail = null, reading = false) }
+        } else openDetails(id)
+    }
+
+    private fun openDetails(id: Long) {
+        if (mutable.value.expandedId == id && mutable.value.detail != null) return
         generation++
         val request = generation
         detailJob?.cancel()
-        if (mutable.value.expandedId == id) {
-            mutable.update { it.copy(expandedId = null, detail = null, reading = false) }
-            return
-        }
         mutable.update { it.copy(expandedId = id, detail = null, reading = true, notice = null) }
         detailJob = viewModelScope.launch {
             try {
