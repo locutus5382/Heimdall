@@ -29,6 +29,9 @@ workflow-continuity milestone*, **not** a claim of Release Candidate 1.
    When an older Sessions row is explicitly sent to Compare as baseline A,
    Compare expands its read up to that same 100-row cap before validating the
    selection; it does not silently discard a valid older baseline.
+   For each visible page, the read-only repository fetches one lookahead
+   row (subject to the 100-row cap) and drops it from the displayed list.
+   A full final page no longer incorrectly advertises `LOAD OLDER`.
    This is deliberately **not unbounded scrolling or full-database paging**.
 5. **A/B double-tap guard:** `CompareScreenViewModel.compare()` sets `busy`
    before dispatching its IO coroutine, so two touches cannot start two
@@ -55,7 +58,8 @@ Run the exact HEAD through the existing workflow:
     or Compare after the respective refresh action
   - **rapid compare:** two fast taps execute exactly one bounded A/B comparison
   - **history pagination:** older sessions load in batches while expansion
-    stays anchored to the original session
+    stays anchored to the original session; exact full terminal pages are
+    detected using a bounded lookahead row, not the visible page size
   - **A/B pagination:** comparison selection remains valid during paging
   - **older linked baseline:** a Sessions row outside Compare's first 20
     survives navigation and A/B selection after its archive refresh
