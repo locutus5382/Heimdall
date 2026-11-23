@@ -100,6 +100,71 @@ class BifrostM16WorkflowAndroidTest {
         assertEquals(42L, model.ui.value.history.first().id)
     }
 
+    @Test fun archivedSessionPagingPreservesExpandedRun() {
+        val all = (60L downTo 1L).map { id ->
+            SavedSession(id, id * 1000L, id * 1000L + 5000L, 6L)
+        }
+        val source = object : SessionScreenDataSource {
+            override suspend fun recent() = all.take(20)
+            override suspend fun recent(limit: Int) = all.take(limit)
+            override suspend fun details(id: Long) = SessionDetail(
+                SessionOverview(null, null, null, null, null, 6L), null, null
+            )
+            override suspend fun exportCsv(id: Long, uri: Uri) = 6L
+        }
+        lateinit var model: SessionScreenViewModel
+        activity.scenario.onActivity { host ->
+            model = ViewModelProvider(host, SessionScreenViewModel.Factory(source))
+                .get(SessionScreenViewModel::class.java)
+            model.refresh(0L)
+        }
+        waitFor("first page") { model.ui.value.history.size == 20 }
+        assertTrue(model.ui.value.hasMoreHistory)
+        activity.scenario.onActivity { model.toggle(60L) }
+        waitFor("expanded newest") { model.ui.value.detail != null }
+        activity.scenario.onActivity { model.loadOlder() }
+        waitFor("second page") { model.ui.value.history.size == 40 }
+        assertEquals(60L, model.ui.value.expandedId)
+        assertTrue(model.ui.value.detail != null)
+        activity.scenario.onActivity { model.loadOlder() }
+        waitFor("last page") { model.ui.value.history.size == 60 }
+        assertFalse(model.ui.value.hasMoreHistory)
+    }
+
+    @Test fun comparisonArchivePagingKeepsSelectedBaselineAndCandidate() {
+        val all = (60L downTo 1L).map { id ->
+            SavedSession(id, id * 1000L, id * 1000L + 5000L, 6L)
+        }
+        val source = object : ComparisonDataSource {
+            override suspend fun recent() = all.take(20)
+            override suspend fun recent(limit: Int) = all.take(limit)
+            override suspend fun bounds(id: Long) = DukoWindow(0L, 5000L)
+            override suspend fun compare(a: Long, b: Long, wa: DukoWindow, wb: DukoWindow):
+                DukoComparisonReport? = null
+            override suspend fun write(uri: Uri, payload: String) = Unit
+        }
+        lateinit var model: CompareScreenViewModel
+        activity.scenario.onActivity { host ->
+            model = ViewModelProvider(host, CompareScreenViewModel.Factory(source))
+                .get(CompareScreenViewModel::class.java)
+            model.refresh(0L)
+        }
+        waitFor("initial A/B page") { model.ui.value.sessions.size == 20 }
+        activity.scenario.onActivity {
+            model.selectA(60L)
+            model.selectB(59L)
+            model.loadOlder()
+        }
+        waitFor("older A/B page") { model.ui.value.sessions.size == 40 }
+        assertEquals(60L, model.ui.value.a)
+        assertEquals(59L, model.ui.value.b)
+        assertTrue(model.ui.value.canCompare)
+        activity.scenario.onActivity { model.loadOlder() }
+        waitFor("all available A/B rows") { model.ui.value.sessions.size == 60 }
+        assertFalse(model.ui.value.hasMoreSessions)
+        assertEquals(60L, model.ui.value.a)
+    }
+
     @Test fun rapidCompareTouchesComputeOnceAndPreserveExistingSelection() {
         val compareCalls = AtomicInteger(0)
         val source = object : ComparisonDataSource {
