@@ -21,6 +21,7 @@ import kotlinx.coroutines.withContext
 
 internal interface ComparisonDataSource {
     suspend fun recent(): List<SavedSession>
+    suspend fun recent(limit: Int): List<SavedSession> = recent()
     suspend fun bounds(id: Long): DukoWindow?
     suspend fun compare(a: Long, b: Long, wa: DukoWindow, wb: DukoWindow): DukoComparisonReport?
     suspend fun write(uri: Uri, payload: String)
@@ -31,6 +32,7 @@ internal class ComparisonRepository(context: Context) : ComparisonDataSource {
     private val app = context.applicationContext
     private val archive = SessionArchive(app)
     override suspend fun recent(): List<SavedSession> = archive.recent()
+    override suspend fun recent(limit: Int): List<SavedSession> = archive.recent(limit)
     override suspend fun bounds(id: Long): DukoWindow? = archive.dukoMonotonicBounds(id)
     override suspend fun compare(a: Long, b: Long, wa: DukoWindow, wb: DukoWindow): DukoComparisonReport? =
         archive.dukoCompare(a, b, wa, wb)
@@ -49,6 +51,7 @@ internal data class PendingComparisonExport(val kind: ComparisonExport, val payl
 internal data class CompareUiState(
     val sessions: List<SavedSession> = emptyList(),
     val loading: Boolean = false,
+    val hasMoreSessions: Boolean = false,
     val a: Long? = null,
     val b: Long? = null,
     val presetA: AbWindowPreset = AbWindowPreset.FULL,
@@ -78,21 +81,31 @@ internal class CompareScreenViewModel(private val repo: ComparisonDataSource) : 
     private var listJob: Job? = null
     private var compareJob: Job? = null
     private var generation = 0L
+    private var historyLimit = 20
 
-    fun refresh(key: Long) {
-        if (loaded && refreshKey == key) return
+    fun loadOlder() {
+        val current = mutable.value
+        if (current.loading || !current.hasMoreSessions || historyLimit >= 100) return
+        historyLimit = (historyLimit + 20).coerceAtMost(100)
+        refresh(refreshKey ?: 0L, force = true)
+    }
+
+    fun refresh(key: Long, force: Boolean = false) {
+        if (!force && loaded && refreshKey == key) return
         loaded = true
         refreshKey = key
         listJob?.cancel()
         listJob = viewModelScope.launch {
             mutable.update { it.copy(loading = true) }
             try {
-                val rows = repo.recent()
+                val rows = repo.recent(historyLimit)
                 val ids = rows.map { it.id }.toSet()
                 mutable.update { s ->
                     val bothValid = (s.a == null || s.a in ids) &&
                         (s.b == null || s.b in ids)
-                    s.copy(sessions = rows, loading = false, issue = null,
+                    s.copy(sessions = rows, loading = false,
+                        hasMoreSessions = rows.size >= historyLimit && historyLimit < 100,
+                        issue = null,
                         a = s.a?.takeIf { it in ids },
                         b = s.b?.takeIf { it in ids },
                         report = if (bothValid) s.report else null,
