@@ -165,6 +165,38 @@ class BifrostM16WorkflowAndroidTest {
         assertEquals(60L, model.ui.value.a)
     }
 
+    @Test fun olderSessionBaselineHandoffIsNotDroppedOnCompareEntry() {
+        val all = (60L downTo 1L).map { id ->
+            SavedSession(id, id * 1000L, id * 1000L + 5000L, 6L)
+        }
+        val source = object : ComparisonDataSource {
+            override suspend fun recent() = all.take(20)
+            override suspend fun recent(limit: Int) = all.take(limit)
+            override suspend fun bounds(id: Long) = DukoWindow(0L, 5000L)
+            override suspend fun compare(a: Long, b: Long, wa: DukoWindow, wb: DukoWindow):
+                DukoComparisonReport? = null
+            override suspend fun write(uri: Uri, payload: String) = Unit
+        }
+        lateinit var model: CompareScreenViewModel
+        activity.scenario.onActivity { host ->
+            model = ViewModelProvider(host, CompareScreenViewModel.Factory(source))
+                .get(CompareScreenViewModel::class.java)
+            model.refresh(0L)
+        }
+        waitFor("initial comparison history") { model.ui.value.sessions.size == 20 }
+        activity.scenario.onActivity {
+            model.selectBaselineFromSessions(5L) // not in newest twenty
+        }
+        waitFor("older linked baseline") {
+            model.ui.value.sessions.size == 60 && model.ui.value.a == 5L &&
+                !model.ui.value.loading
+        }
+        activity.scenario.onActivity { model.selectB(60L) }
+        assertTrue(model.ui.value.canCompare)
+        assertEquals(5L, model.ui.value.a)
+        assertEquals(null, model.ui.value.issue)
+    }
+
     @Test fun rapidCompareTouchesComputeOnceAndPreserveExistingSelection() {
         val compareCalls = AtomicInteger(0)
         val source = object : ComparisonDataSource {
