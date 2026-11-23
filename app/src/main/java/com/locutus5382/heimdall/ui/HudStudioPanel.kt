@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
@@ -26,6 +27,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import com.locutus5382.heimdall.ui.theme.BifrostColors
 import androidx.compose.ui.viewinterop.AndroidView
 import com.locutus5382.heimdall.engine.RecorderStatus
 import com.locutus5382.heimdall.recording.HeimdallCanvasView
@@ -52,6 +56,8 @@ fun HudStudioPanel(
     val context = LocalContext.current.applicationContext
     val store = remember(context) { HudProfileStore(context) }
     var config by remember { mutableStateOf(store.read()) }
+    var notice by remember { mutableStateOf<String?>(null) }
+    var restoreArmed by remember { mutableStateOf(false) }
     // Cycles initiated in the game HUD must also update Studio when the
     // dashboard returns. This listener never starts a service or a sampler.
     DisposableEffect(store) {
@@ -70,16 +76,18 @@ fun HudStudioPanel(
     fun save(new: HudProfile) {
         config = new.sanitized()
         store.save(config)
+        notice = null
+        restoreArmed = false
     }
 
-    val gold = Color(0xFFF0BD62)
-    val ink = Color(0xFFF2F6FC)
-    val muted = Color(0xFF94A7C4)
+    val gold = BifrostColors.Amber
+    val ink = BifrostColors.Ice
+    val muted = BifrostColors.Muted
 
     Column(
         modifier = Modifier.fillMaxWidth()
-            .background(Color(0xFF111C31), RoundedCornerShape(18.dp))
-            .border(1.dp, Color(0xFF192B49), RoundedCornerShape(18.dp))
+            .background(BifrostColors.Editorial, RoundedCornerShape(18.dp))
+            .border(1.dp, BifrostColors.Cobalt, RoundedCornerShape(18.dp))
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
@@ -103,7 +111,7 @@ fun HudStudioPanel(
                     HudLayout.RIBBON -> 130.dp
                     HudLayout.PILL -> 125.dp
                 })
-                .background(Color(0xFF0B1425), RoundedCornerShape(14.dp))
+                .background(BifrostColors.Midnight, RoundedCornerShape(14.dp))
                 .padding(6.dp)
         ) {
             AndroidView(
@@ -136,12 +144,13 @@ fun HudStudioPanel(
             color = if (hudEnabled && !overlayPermission) gold else ink
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onToggleHud, modifier = Modifier.weight(1f)) {
+            OutlinedButton(onClick = onToggleHud,
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
                 Text(if (hudEnabled) "DISABLE HUD" else "ENABLE HUD")
             }
             if (!overlayPermission) {
                 OutlinedButton(onClick = onRequestOverlayPermission,
-                    modifier = Modifier.weight(1f)) {
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
                     Text("GRANT OVERLAY")
                 }
             }
@@ -151,7 +160,7 @@ fun HudStudioPanel(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 layouts.forEach { layout ->
                 FilterChip(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                     selected = config.layout == layout,
                     onClick = { save(config.copy(layout = layout)) },
                     label = {
@@ -182,7 +191,7 @@ fun HudStudioPanel(
             else listOf(HudDock.AUTO)
             choices.forEach { choice ->
                 FilterChip(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                     selected = config.dock == choice ||
                         (config.dock == HudDock.AUTO && choice == choices.first()),
                     onClick = { save(config.copy(dock = choice)) },
@@ -200,6 +209,7 @@ fun HudStudioPanel(
             color = ink
         )
         Slider(
+            modifier = Modifier.semantics { contentDescription = "HUD scale" },
             value = config.scale, onValueChange = {
                 save(config.copy(scale = it))
             }, valueRange = .85f..1.25f
@@ -210,6 +220,7 @@ fun HudStudioPanel(
             color = ink
         )
         Slider(
+            modifier = Modifier.semantics { contentDescription = "HUD opacity" },
             value = config.opacity, onValueChange = {
                 save(config.copy(opacity = it))
             }, valueRange = 0.45f..0.90f
@@ -219,26 +230,42 @@ fun HudStudioPanel(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 row.forEach { metric ->
                     FilterChip(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                         selected = metric in config.metrics,
                         onClick = {
                             val next = config.metrics.toMutableSet()
-                            if (metric in next) next.remove(metric) else next.add(metric)
-                            save(config.copy(metrics = next))
+                            if (metric in next) {
+                                next.remove(metric)
+                                save(config.copy(metrics = next))
+                            } else if (next.size >= config.layout.metricLimit()) {
+                                notice = "This layout supports at most ${config.layout.metricLimit()} " +
+                                    "metrics. Deselect one before adding another."
+                            } else {
+                                next.add(metric)
+                                save(config.copy(metrics = next))
+                            }
                         },
                         label = { Text(metric.title, color = ink) }
                     )
                 }
             }
         }
+        notice?.let { Text(it, color = gold) }
         OutlinedButton(
-            modifier = Modifier.fillMaxWidth(),
-            onClick = { save(HudProfile()) }
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            onClick = {
+                if (restoreArmed) save(HudProfile())
+                else {
+                    restoreArmed = true
+                    notice = "Tap Restore Defaults again to replace the saved HUD configuration."
+                }
+            }
         ) {
-            Text("RESTORE HUD DEFAULTS", color = muted)
+            Text(if (restoreArmed) "CONFIRM RESTORE DEFAULTS"
+                else "RESTORE HUD DEFAULTS", color = muted)
         }
         OutlinedButton(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
             onClick = { save(config.copy(locked = !config.locked)) }
         ) {
             Text(
