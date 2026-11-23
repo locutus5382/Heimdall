@@ -164,8 +164,14 @@ internal fun DukoComparisonPanel(model: CompareScreenViewModel) {
             selectedWindows?.let { (wa, wb) ->
                 Text("DUKO REPORT · comparison-only · saved locally", color = AbAmber)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { model.prepareExport(ComparisonExport.TXT)?.let(textPicker::launch) }) { Text("SAVE TXT") }
-                    OutlinedButton(onClick = { model.prepareExport(ComparisonExport.CSV)?.let(csvPicker::launch) }) { Text("SAVE CSV") }
+                    OutlinedButton(
+                        enabled = state.pendingExport == null && !state.writing,
+                        onClick = { model.prepareExport(ComparisonExport.TXT)?.let(textPicker::launch) }
+                    ) { Text("SAVE TXT") }
+                    OutlinedButton(
+                        enabled = state.pendingExport == null && !state.writing,
+                        onClick = { model.prepareExport(ComparisonExport.CSV)?.let(csvPicker::launch) }
+                    ) { Text("SAVE CSV") }
                 }
             }
             result.contextWarnings.forEach {
