@@ -8,13 +8,18 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -33,6 +38,12 @@ private val Ink = Color(0xFFF2F6FC)
 private val Subtle = Color(0xFF94A7C4)
 private val Amber = Color(0xFFF0BD62)
 private val Slate = Color(0xFF111C31)
+
+/** Only one section is visible at a time on a handheld touchscreen. */
+internal enum class SessionDetailSection(val label: String) {
+    SUMMARY("SUMMARY"), ANALYSIS("DUKO ANALYSIS"), CONDITIONS("TEST CONDITIONS"),
+    EXPORT("EXPORT")
+}
 
 /** A completed asynchronous read may publish only into its originating expansion. */
 internal fun mayPublishSessionAnalysis(requestGeneration: Long, currentGeneration: Long,
@@ -141,30 +152,56 @@ internal fun SessionHistoryPanel(
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                         onClick = { model.toggle(session.id) }
-                    ) { Text(if (expandedId == session.id) "HIDE" else "ANALYZE") }
-                    OutlinedButton(
-                        modifier = Modifier.weight(1f),
-                        enabled = !state.exporting && state.pendingExportId == null,
-                        onClick = {
-                            if (model.requestExport(session.id))
-                                chooser.launch("Heimdall_session_${session.id}.csv")
-                        }
-                    ) { Text("EXPORT CSV") }
-                }
-                if (onCompare != null) {
-                    OutlinedButton(
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = session.samples >= 2,
-                        onClick = { onCompare(session.id) },
-                    ) {
-                        Text("USE SESSION #${session.id} AS A/B BASELINE")
+                    ) { Text(if (expandedId == session.id) "HIDE DETAILS" else "ANALYZE") }
+                    if (onCompare != null) {
+                        OutlinedButton(
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                            enabled = session.samples >= 2,
+                            onClick = { onCompare(session.id) },
+                        ) { Text("COMPARE A/B") }
                     }
                 }
                 if (expandedId == session.id) {
-                    DukoTagEditor(sessionId = session.id)
-                    policyCaps?.let { cap ->
+                    var section by rememberSaveable(session.id) {
+                        mutableStateOf(SessionDetailSection.SUMMARY.name)
+                    }
+                    Text("SESSION #${session.id} / DETAILS", color = Amber)
+                    SessionDetailSection.entries.chunked(2).forEach { pair ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            pair.forEach { destination ->
+                                FilterChip(
+                                    selected = section == destination.name,
+                                    onClick = { section = destination.name },
+                                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                                    label = { Text(destination.label) },
+                                )
+                            }
+                        }
+                    }
+                    if (section == SessionDetailSection.CONDITIONS.name) {
+                        Text("Recorded settings are user-declared, not verified hardware state.",
+                            color = Subtle)
+                        DukoTagEditor(sessionId = session.id)
+                    }
+                    if (section == SessionDetailSection.EXPORT.name) {
+                        Text("Export the original completed run as CSV. No raw samples " +
+                            "are changed or uploaded.", color = Subtle)
+                        OutlinedButton(
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                            enabled = !state.exporting && state.pendingExportId == null,
+                            onClick = {
+                                if (model.requestExport(session.id))
+                                    chooser.launch("Heimdall_session_${session.id}.csv")
+                            },
+                        ) { Text("EXPORT SESSION #${session.id} CSV") }
+                        if (state.exporting) {
+                            Text("Saving the selected session…", color = Amber)
+                        }
+                    }
+                    if (reading) Text("Preparing recorded evidence…", color = Subtle)
+                    if (section == SessionDetailSection.ANALYSIS.name) policyCaps?.let { cap ->
                         Text("CPU POLICY LIMITS · START SNAPSHOT", color = Amber)
                         val status = when (cap.state) {
                             DukoFrequencyCapState.OBSERVED_BELOW_HARDWARE_MAX ->
@@ -182,9 +219,10 @@ internal fun SessionHistoryPanel(
                             color = Subtle
                         )
                     }
-                    if (reading) Text("Analyzing samples…", color = Subtle)
                     val overview = details
                     if (overview != null) {
+                        if (section == SessionDetailSection.SUMMARY.name) {
+                        Text("SESSION SUMMARY / RECORDED VALUES", color = Amber)
                         val start = overview.batteryAtStart
                         val end = overview.batteryAtEnd
                         Text(
@@ -209,6 +247,8 @@ internal fun SessionHistoryPanel(
                                 "Unavailable sensors are not interpreted as zero.",
                             color = Subtle
                         )
+                        }
+                        if (section == SessionDetailSection.ANALYSIS.name) {
                         val duko = foundation
                         if (duko != null) {
                             Text("DUKO FOUNDATION · DATA INTEGRITY", color = Amber)
@@ -313,6 +353,7 @@ internal fun SessionHistoryPanel(
                                     "monotonic samples; older sessions retain their basic summaries.",
                                 color = Subtle
                             )
+                        }
                         }
                     }
                 }
