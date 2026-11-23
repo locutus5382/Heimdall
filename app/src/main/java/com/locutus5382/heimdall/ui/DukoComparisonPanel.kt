@@ -18,6 +18,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import com.locutus5382.heimdall.engine.duko.DukoMetricDifference
 import com.locutus5382.heimdall.engine.duko.DukoComparisonQuality
 import com.locutus5382.heimdall.engine.duko.DukoComparisonReport
 import com.locutus5382.heimdall.engine.duko.DukoMetric
@@ -177,6 +180,8 @@ internal fun DukoComparisonPanel(model: CompareScreenViewModel) {
             result.contextWarnings.forEach {
                 Text(it.replace('_', ' '), color = AbSubtle)
             }
+            Text("COMPARISON RESULTS  /  MEASURED EVIDENCE",
+                color = AbAmber, fontWeight = FontWeight.SemiBold)
             listOf(
                 DukoMetric.CPU_LOAD, DukoMetric.GPU_LOAD,
                 DukoMetric.CPU_CLOCK, DukoMetric.GPU_CLOCK,
@@ -184,18 +189,55 @@ internal fun DukoComparisonPanel(model: CompareScreenViewModel) {
                 DukoMetric.GPU_TEMPERATURE, DukoMetric.AVAILABLE_RAM
             ).forEach { metric ->
                 result.metrics[metric]?.let { item ->
-                    val delta = if (item.quality == DukoComparisonQuality.NOT_COMPARABLE)
-                        "not comparable"
-                    else "Δ ${abNumber(item.delta)} ${metric.unit.symbol} · ${abNumber(item.percentChange)}%"
-                    Text(
-                        "${metric.name.replace('_', ' ')}: A ${abNumber(item.aMean)} / B ${abNumber(item.bMean)} ${metric.unit.symbol} · $delta · ${item.quality.name}",
-                        color = AbInk
-                    )
-                    if (item.warnings.isNotEmpty())
-                        Text(item.warnings.joinToString(", ").replace('_', ' '), color = AbSubtle)
+                    ComparisonMetricCard(metric, item)
                 }
             }
             Text("Measured telemetry is not FPS, a causal performance claim or a game benchmark.", color = AbSubtle)
+        }
+    }
+}
+
+/** One qualified metric per card. Never invent a delta for blocked evidence. */
+@Composable
+private fun ComparisonMetricCard(
+    metric: DukoMetric,
+    item: DukoMetricDifference,
+) {
+    val comparable = item.quality != DukoComparisonQuality.NOT_COMPARABLE
+    Column(
+        Modifier.fillMaxWidth()
+            .background(Color(0xFF132038), RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(metric.name.replace('_', ' '), color = AbInk,
+                fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text(item.quality.name.replace('_', ' '),
+                color = if (comparable) AbAmber else Color(0xFFF16B78),
+                fontSize = 10.sp)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text("A  /  BASELINE", fontSize = 10.sp, color = AbSubtle)
+                Text(abNumber(item.aMean) + " " + metric.unit.symbol,
+                    color = AbInk, fontSize = 17.sp, fontWeight = FontWeight.Medium)
+            }
+            Column(Modifier.weight(1f)) {
+                Text("B  /  CANDIDATE", fontSize = 10.sp, color = AbSubtle)
+                Text(abNumber(item.bMean) + " " + metric.unit.symbol,
+                    color = AbInk, fontSize = 17.sp, fontWeight = FontWeight.Medium)
+            }
+        }
+        Text(
+            if (!comparable) "DELTA NOT SUPPORTED BY AVAILABLE EVIDENCE"
+            else "B − A: ${abNumber(item.delta)} ${metric.unit.symbol}  ·  " +
+                "${abNumber(item.percentChange)}%",
+            color = if (comparable) AbAmber else AbSubtle, fontSize = 12.sp
+        )
+        if (item.warnings.isNotEmpty()) {
+            Text(item.warnings.joinToString(" · ").replace('_', ' '),
+                color = AbSubtle, fontSize = 11.sp)
         }
     }
 }
