@@ -47,6 +47,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var dashboardModel: DashboardViewModel
     private lateinit var sessionsModel: SessionScreenViewModel
     private lateinit var compareModel: CompareScreenViewModel
+    private lateinit var diagnosticsModel: DiagnosticsViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -59,6 +60,9 @@ class MainActivity : ComponentActivity() {
         compareModel = ViewModelProvider(this,
             CompareScreenViewModel.Factory(ComparisonRepository(this)))
             .get(CompareScreenViewModel::class.java)
+        diagnosticsModel = ViewModelProvider(this,
+            DiagnosticsViewModel.Factory(AndroidDiagnosticsRepository(this)))
+            .get(DiagnosticsViewModel::class.java)
         dashboardModel.inspect()
         setContent {
             val state by dashboardModel.uiState.collectAsStateWithLifecycle()
@@ -135,7 +139,8 @@ class MainActivity : ComponentActivity() {
                                 model = compareModel,
                                 openCompare = { openTab(BifrostTab.COMPARE) }
                             )
-                            BifrostBlade.DIAGNOSTICS -> DiagnosticsPanel()
+                            BifrostBlade.DIAGNOSTICS ->
+                                DiagnosticsPanel(diagnosticsModel)
                         }
                     }
                 )
