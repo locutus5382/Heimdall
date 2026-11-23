@@ -93,6 +93,7 @@ internal fun SessionHistoryPanel(
     refreshKey: Long,
     showComparison: Boolean = false,
     model: SessionScreenViewModel,
+    onCompare: ((Long) -> Unit)? = null,
 ) {
     val state by model.ui.collectAsStateWithLifecycle()
     val history = state.history
@@ -151,6 +152,15 @@ internal fun SessionHistoryPanel(
                                 chooser.launch("Heimdall_session_${session.id}.csv")
                         }
                     ) { Text("EXPORT CSV") }
+                }
+                if (onCompare != null) {
+                    OutlinedButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = session.samples >= 2,
+                        onClick = { onCompare(session.id) },
+                    ) {
+                        Text("USE SESSION #${session.id} AS A/B BASELINE")
+                    }
                 }
                 if (expandedId == session.id) {
                     DukoTagEditor(sessionId = session.id)
