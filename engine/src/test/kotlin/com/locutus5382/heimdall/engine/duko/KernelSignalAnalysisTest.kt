@@ -18,8 +18,8 @@ class KernelSignalAnalysisTest {
         assertEquals(50.0, CpuStatParser.coreLoads(before, after).getValue(0), 0.001)
         // CPU1 counters moved backwards (idle 60 → 50): must reject.
         assertFalse(1 in CpuStatParser.coreLoads(before, after))
-        assertNotNull(CpuStatParser.utilization(before.total, after.total))
-        assertNull(CpuStatParser.utilization(after.total, before.total))
+        assertNotNull(CpuStatParser.utilization(before.aggregate, after.aggregate))
+        assertNull(CpuStatParser.utilization(after.aggregate, before.aggregate))
         assertTrue(CpuStatParser.coreLoads(null, after).isEmpty())
     }
 
