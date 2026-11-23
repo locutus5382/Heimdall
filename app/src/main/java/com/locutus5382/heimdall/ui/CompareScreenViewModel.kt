@@ -82,6 +82,22 @@ internal class CompareScreenViewModel(private val repo: ComparisonDataSource) : 
     private var compareJob: Job? = null
     private var generation = 0L
     private var historyLimit = 20
+    private var linkedBaselineId: Long? = null
+
+    /**
+     * Sessions may already be showing an older page. Keep its exact baseline
+     * when entering Compare instead of deleting A because our default first
+     * page contains only the newest 20 recordings.
+     */
+    fun selectBaselineFromSessions(id: Long) {
+        if (id <= 0L) return
+        selectA(id)
+        if (mutable.value.sessions.none { it.id == id }) {
+            linkedBaselineId = id
+            historyLimit = 100
+            refresh(refreshKey ?: 0L, force = true)
+        }
+    }
 
     fun loadOlder() {
         val current = mutable.value
@@ -100,12 +116,16 @@ internal class CompareScreenViewModel(private val repo: ComparisonDataSource) : 
             try {
                 val rows = repo.recent(historyLimit)
                 val ids = rows.map { it.id }.toSet()
+                val linked = linkedBaselineId
+                linkedBaselineId = null
                 mutable.update { s ->
                     val bothValid = (s.a == null || s.a in ids) &&
                         (s.b == null || s.b in ids)
                     s.copy(sessions = rows, loading = false,
                         hasMoreSessions = rows.size >= historyLimit && historyLimit < 100,
-                        issue = null,
+                        issue = if (linked != null && linked !in ids)
+                            "Baseline #$linked is not in the 100 most recent saved runs."
+                            else null,
                         a = s.a?.takeIf { it in ids },
                         b = s.b?.takeIf { it in ids },
                         report = if (bothValid) s.report else null,
