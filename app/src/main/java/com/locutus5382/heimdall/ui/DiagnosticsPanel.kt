@@ -3,6 +3,7 @@ package com.locutus5382.heimdall.ui
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,111 +14,80 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.graphics.Color
-import com.locutus5382.heimdall.recording.DiagnosticSnapshot
-import com.locutus5382.heimdall.recording.RuntimeDiagnostics
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.nio.charset.StandardCharsets
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.locutus5382.heimdall.ui.theme.BifrostColors
+import java.text.DateFormat
+import java.util.Date
 
-/** Explicit, one-shot hardware capability inspection; no idle polling. */
+/**
+ * Bifrost Diagnostics blade. All local probing, asynchronous work, state and
+ * SAF export ownership stay in the Activity-scoped DiagnosticsViewModel.
+ * No network calls, root access, recorder service or background polling.
+ */
 @Composable
-fun DiagnosticsPanel() {
-    val app = LocalContext.current.applicationContext
-    val probe = remember(app) { RuntimeDiagnostics(app) }
-    val scope = rememberCoroutineScope()
-    var snapshot by remember { mutableStateOf<DiagnosticSnapshot?>(null) }
-    var busy by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf<String?>(null) }
-
-    val export = rememberLauncherForActivityResult(
+internal fun DiagnosticsPanel(model: DiagnosticsViewModel) {
+    val state by model.ui.collectAsStateWithLifecycle()
+    val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/plain")
-    ) { destination ->
-        val report = snapshot?.asText()
-        if (destination != null && report != null) {
-            scope.launch {
-                try {
-                    withContext(Dispatchers.IO) {
-                        val stream = app.contentResolver.openOutputStream(destination)
-                            ?: error("DESTINATION_UNAVAILABLE")
-                        stream.use { it.write(report.toByteArray(StandardCharsets.UTF_8)) }
-                    }
-                    message = "Device diagnostics saved locally."
-                } catch (error: Exception) {
-                    message = "Diagnostic export failed: ${error.javaClass.simpleName}"
-                }
-            }
-        }
-    }
+    ) { uri -> model.onExportResult(uri) }
 
     Column(
         modifier = Modifier.fillMaxWidth()
-            .background(Color(0xFF121E32), RoundedCornerShape(18.dp))
+            .background(BifrostColors.Editorial, RoundedCornerShape(18.dp))
+            .border(1.dp, BifrostColors.Cobalt, RoundedCornerShape(18.dp))
             .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("DEVICE DIAGNOSTICS", color = Color(0xFFF2A900))
+        Text("DEVICE DIAGNOSTICS", color = BifrostColors.Amber)
         Text(
-            "Inspect what this Android device actually exposes. " +
-                "Nothing is uploaded or changed.",
-            color = Color(0xFF9EADC2)
+            "Read-only inspection of the sensors, permissions and recording " +
+                "database available on this device. Nothing is uploaded or modified.",
+            color = BifrostColors.Muted
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
                 modifier = Modifier.weight(1f),
-                enabled = !busy,
-                onClick = {
-                    busy = true
-                    message = null
-                    scope.launch {
-                        try {
-                            snapshot = probe.capture()
-                        } catch (e: Exception) {
-                            message = "Inspection failed: ${e.javaClass.simpleName}"
-                        } finally {
-                            busy = false
-                        }
-                    }
-                }
+                enabled = !state.inspecting && !state.writing &&
+                    state.pendingExportText == null,
+                onClick = model::inspect,
             ) {
-                Text(if (busy) "INSPECTING…" else "RUN DIAGNOSTICS")
+                Text(if (state.inspecting) "INSPECTING…" else
+                    if (state.snapshot == null) "RUN DIAGNOSTICS" else "REFRESH DIAGNOSTICS")
             }
-            if (snapshot != null) {
-                OutlinedButton(
-                    modifier = Modifier.weight(1f),
-                    onClick = { export.launch("Heimdall_device_diagnostics.txt") }
-                ) {
-                    Text("EXPORT TXT")
-                }
-            }
+            OutlinedButton(
+                modifier = Modifier.weight(1f),
+                enabled = state.snapshot != null && !state.inspecting &&
+                    !state.writing && state.pendingExportText == null,
+                onClick = { model.requestExport()?.let(picker::launch) },
+            ) { Text("EXPORT TXT") }
         }
-        snapshot?.let { result ->
+
+        state.snapshot?.let { result ->
+            Text("CAPTURED " +
+                DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+                    .format(Date(result.capturedAtMs)),
+                color = BifrostColors.Signal)
             result.lines.forEach { (label, value) ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(
-                        label,
-                        modifier = Modifier.weight(1f).padding(end = 8.dp),
-                        color = Color(0xFF9EADC2)
-                    )
-                    Text(
-                        value,
-                        modifier = Modifier.weight(1f),
-                        color = Color(0xFFEAF1FF)
-                    )
+                    Text(label, modifier = Modifier.weight(1f), color = BifrostColors.Muted)
+                    Text(value, modifier = Modifier.weight(1f), color = BifrostColors.Ice)
                 }
             }
         }
-        message?.let { Text(it, color = Color(0xFFF2A900)) }
+
+        if (state.snapshot == null && !state.inspecting) {
+            Text("No inspection yet. Run a local capability check to see " +
+                "which readings are actually available.",
+                color = BifrostColors.Muted)
+        }
+        state.message?.let { Text(it, color = BifrostColors.Amber) }
+        Text("Unavailable readings are not zero. Diagnostics cannot establish " +
+            "game FPS, throttling cause or power consumed by a game.",
+            color = BifrostColors.Muted)
     }
 }

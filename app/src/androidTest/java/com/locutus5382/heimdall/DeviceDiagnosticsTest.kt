@@ -31,6 +31,7 @@ class DeviceDiagnosticsTest {
         assertTrue(report.contains("Overlay permission:"))
         assertTrue(report.contains("No FPS/root/network"))
 
+        compose.onNodeWithText("DIAGNOSTICS").performScrollTo().performClick()
         compose.onNodeWithText("RUN DIAGNOSTICS")
             .performScrollTo().performClick()
         compose.waitUntil(30_000L) {

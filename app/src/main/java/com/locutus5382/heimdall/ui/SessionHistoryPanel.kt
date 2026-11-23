@@ -8,20 +8,22 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.locutus5382.heimdall.engine.duko.ClockResidencyResult
 import com.locutus5382.heimdall.engine.duko.ThermalStabilityResult
@@ -29,23 +31,20 @@ import com.locutus5382.heimdall.engine.duko.DukoEvidence
 import com.locutus5382.heimdall.engine.duko.DukoMetric
 import com.locutus5382.heimdall.engine.duko.DukoFrequencyCapAssessment
 import com.locutus5382.heimdall.engine.duko.DukoFrequencyCapState
-import com.locutus5382.heimdall.recording.DukoDeviceCapture
-import com.locutus5382.heimdall.recording.DukoSessionContextStore
-import com.locutus5382.heimdall.recording.DukoFoundationReport
-import com.locutus5382.heimdall.recording.SavedSession
-import com.locutus5382.heimdall.recording.SessionArchive
-import com.locutus5382.heimdall.recording.SessionOverview
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.CancellationException
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
 
-private val Ink = Color(0xFFEAF1FF)
-private val Subtle = Color(0xFF9EADC2)
-private val Amber = Color(0xFFF2A900)
-private val Slate = Color(0xFF121E32)
+private val Ink = Color(0xFFF2F6FC)
+private val Subtle = Color(0xFF94A7C4)
+private val Amber = Color(0xFFF0BD62)
+private val Slate = Color(0xFF111C31)
+
+/** Only one section is visible at a time on a handheld touchscreen. */
+internal enum class SessionDetailSection(val label: String) {
+    SUMMARY("SUMMARY"), ANALYSIS("DUKO ANALYSIS"), CONDITIONS("TEST CONDITIONS"),
+    EXPORT("EXPORT")
+}
 
 /** A completed asynchronous read may publish only into its originating expansion. */
 internal fun mayPublishSessionAnalysis(requestGeneration: Long, currentGeneration: Long,
@@ -102,69 +101,51 @@ internal fun thermalStabilityLines(result: ThermalStabilityResult): List<String>
 }
 
 @Composable
-fun SessionHistoryPanel(refreshKey: Long) {
-    val context = LocalContext.current
-    val archive = remember(context) { SessionArchive(context) }
-    val contextStore = remember(context) { DukoSessionContextStore(context) }
-    val scope = rememberCoroutineScope()
-    var history by remember { mutableStateOf<List<SavedSession>>(emptyList()) }
-    var notice by remember { mutableStateOf<String?>(null) }
-    var exportTarget by remember { mutableStateOf<Long?>(null) }
-    var expandedId by remember { mutableStateOf<Long?>(null) }
-    var details by remember { mutableStateOf<SessionOverview?>(null) }
-    var foundation by remember { mutableStateOf<DukoFoundationReport?>(null) }
-    var policyCaps by remember { mutableStateOf<DukoFrequencyCapAssessment?>(null) }
-    var reading by remember { mutableStateOf(false) }
-    var analyzeJob by remember { mutableStateOf<Job?>(null) }
-    var analyzeGeneration by remember { mutableStateOf(0L) }
+internal fun SessionHistoryPanel(
+    refreshKey: Long,
+    showComparison: Boolean = false,
+    model: SessionScreenViewModel,
+    onCompare: ((Long) -> Unit)? = null,
+) {
+    val state by model.ui.collectAsStateWithLifecycle()
+    val history = state.history
+    val notice = state.notice
+    val expandedId = state.expandedId
+    val details = state.detail?.overview
+    val foundation = state.detail?.duko
+    val policyCaps = state.detail?.caps
+    val reading = state.reading
+    val tagDraftStates = rememberSaveableStateHolder()
 
     val chooser = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/csv")
-    ) { destination ->
-        val id = exportTarget
-        exportTarget = null
-        if (destination != null && id != null) {
-            scope.launch {
-                try {
-                    val stream = context.contentResolver.openOutputStream(destination)
-                        ?: error("DESTINATION_UNAVAILABLE")
-                    val count = archive.exportCsv(id, stream)
-                    notice = "Session #$id exported: $count samples."
-                } catch (e: Exception) {
-                    notice = "CSV export failed: " + e.javaClass.simpleName
-                }
-            }
-        }
-    }
+    ) { uri -> model.onExportResult(uri) }
 
-    LaunchedEffect(refreshKey) {
-        analyzeGeneration++
-        analyzeJob?.cancel()
-        expandedId = null
-        details = null
-        foundation = null
-        policyCaps = null
-        reading = false
-        try {
-            history = archive.recent()
-            notice = null
-        } catch (e: Exception) {
-            notice = "Session history unavailable: " + e.javaClass.simpleName
-        }
-    }
+    LaunchedEffect(refreshKey) { model.refresh(refreshKey) }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("RECORDED SESSIONS", color = Amber)
-        if (history.isEmpty()) Text(
-            "Your completed recordings will appear here.",
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("SAVED RUNS", modifier = Modifier.weight(1f), color = Amber)
+            OutlinedButton(
+                onClick = model::reload,
+                enabled = !state.loadingHistory && !state.exporting,
+                modifier = Modifier.heightIn(min = 48.dp)
+            ) { Text(if (state.loadingHistory) "LOADING…" else "REFRESH") }
+        }
+        if (history.isEmpty() && !state.loadingHistory) Text(
+            "No completed recordings yet. Start a recording on Dashboard " +
+                "or use REFRESH after saving from Quick Settings or the HUD.",
             color = Subtle
         )
-        if (history.size >= 2) DukoComparisonPanel(history)
+        // Compare has one dedicated tab; never mount a second A/B panel here.
         history.forEach { session ->
             Column(
                 modifier = Modifier.fillMaxWidth()
                     .background(Slate, RoundedCornerShape(17.dp))
-                    .border(1.dp, Color(0xFF26364F), RoundedCornerShape(17.dp))
+                    .border(1.dp, Color(0xFF192B49), RoundedCornerShape(17.dp))
                     .padding(13.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -184,71 +165,58 @@ fun SessionHistoryPanel(refreshKey: Long) {
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
-                        modifier = Modifier.weight(1f),
-                        onClick = {
-                            analyzeGeneration++
-                            analyzeJob?.cancel()
-                            val requestGeneration = analyzeGeneration
-                            if (expandedId == session.id) {
-                                expandedId = null
-                                details = null
-                                foundation = null
-                                policyCaps = null
-                                reading = false
-                            } else {
-                                expandedId = session.id
-                                details = null
-                                foundation = null
-                                policyCaps = null
-                                reading = true
-                                analyzeJob = scope.launch {
-                                    try {
-                                        // Keep results local until all mandatory reads finish.
-                                        // Never publish A's data into B's expanded card.
-                                        val overview = archive.overview(session.id)
-                                        val duko = archive.dukoFoundation(session.id)
-                                        // Optional legacy/corrupt profile must not hide valid
-                                        // summary data; it is not verified sensor evidence.
-                                        val caps = runCatching {
-                                            contextStore.deviceProfileJson(session.id)?.let {
-                                                DukoDeviceCapture.assessSavedCpuPolicyCaps(it)
-                                            }
-                                        }.getOrNull()
-                                        if (mayPublishSessionAnalysis(requestGeneration, analyzeGeneration,
-                                            session.id, expandedId)) {
-                                            details = overview
-                                            foundation = duko
-                                            policyCaps = caps
-                                        }
-                                    } catch (cancel: CancellationException) {
-                                        throw cancel
-                                    } catch (e: Exception) {
-                                        if (mayPublishSessionAnalysis(requestGeneration, analyzeGeneration,
-                                            session.id, expandedId)) {
-                                            notice = "Summary unavailable: " +
-                                                e.javaClass.simpleName
-                                        }
-                                    } finally {
-                                        if (mayPublishSessionAnalysis(requestGeneration, analyzeGeneration,
-                                            session.id, expandedId)) {
-                                            reading = false
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    ) { Text(if (expandedId == session.id) "HIDE" else "ANALYZE") }
-                    OutlinedButton(
-                        modifier = Modifier.weight(1f),
-                        onClick = {
-                            exportTarget = session.id
-                            chooser.launch("Heimdall_session_${session.id}.csv")
-                        }
-                    ) { Text("EXPORT CSV") }
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                        onClick = { model.toggle(session.id) }
+                    ) { Text(if (expandedId == session.id) "HIDE DETAILS" else "ANALYZE") }
+                    if (onCompare != null) {
+                        OutlinedButton(
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                            enabled = session.samples >= 2,
+                            onClick = { onCompare(session.id) },
+                        ) { Text("COMPARE A/B") }
+                    }
                 }
                 if (expandedId == session.id) {
-                    DukoTagEditor(sessionId = session.id)
-                    policyCaps?.let { cap ->
+                    var section by rememberSaveable(session.id) {
+                        mutableStateOf(SessionDetailSection.SUMMARY.name)
+                    }
+                    Text("SESSION #${session.id} / DETAILS", color = Amber)
+                    SessionDetailSection.entries.chunked(2).forEach { pair ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            pair.forEach { destination ->
+                                FilterChip(
+                                    selected = section == destination.name,
+                                    onClick = { section = destination.name },
+                                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                                    label = { Text(destination.label) },
+                                )
+                            }
+                        }
+                    }
+                    if (section == SessionDetailSection.CONDITIONS.name) {
+                        Text("Recorded settings are user-declared, not verified hardware state.",
+                            color = Subtle)
+                        tagDraftStates.SaveableStateProvider("tags-${session.id}") {
+                            DukoTagEditor(sessionId = session.id)
+                        }
+                    }
+                    if (section == SessionDetailSection.EXPORT.name) {
+                        Text("Export the original completed run as CSV. No raw samples " +
+                            "are changed or uploaded.", color = Subtle)
+                        OutlinedButton(
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                            enabled = !state.exporting && state.pendingExportId == null,
+                            onClick = {
+                                if (model.requestExport(session.id))
+                                    chooser.launch("Heimdall_session_${session.id}.csv")
+                            },
+                        ) { Text("EXPORT SESSION #${session.id} CSV") }
+                        if (state.exporting) {
+                            Text("Saving the selected session…", color = Amber)
+                        }
+                    }
+                    if (reading) Text("Preparing recorded evidence…", color = Subtle)
+                    if (section == SessionDetailSection.ANALYSIS.name) policyCaps?.let { cap ->
                         Text("CPU POLICY LIMITS · START SNAPSHOT", color = Amber)
                         val status = when (cap.state) {
                             DukoFrequencyCapState.OBSERVED_BELOW_HARDWARE_MAX ->
@@ -266,9 +234,10 @@ fun SessionHistoryPanel(refreshKey: Long) {
                             color = Subtle
                         )
                     }
-                    if (reading) Text("Analyzing samples…", color = Subtle)
                     val overview = details
                     if (overview != null) {
+                        if (section == SessionDetailSection.SUMMARY.name) {
+                        Text("SESSION SUMMARY / RECORDED VALUES", color = Amber)
                         val start = overview.batteryAtStart
                         val end = overview.batteryAtEnd
                         Text(
@@ -293,8 +262,12 @@ fun SessionHistoryPanel(refreshKey: Long) {
                                 "Unavailable sensors are not interpreted as zero.",
                             color = Subtle
                         )
+                        }
+                        if (section == SessionDetailSection.ANALYSIS.name) {
                         val duko = foundation
                         if (duko != null) {
+                            DukoSignalCharts(duko)
+                            DukoCoreAndPressurePanel(duko)
                             Text("DUKO FOUNDATION · DATA INTEGRITY", color = Amber)
                             Text(
                                 "Observed monotonic interval: ${duko.window.durationMs / 1000L}s · " +
@@ -382,9 +355,21 @@ fun SessionHistoryPanel(refreshKey: Long) {
                                         "${metric.name.replace('_', ' ')} · " +
                                             "P50 ${fmt(item.median)} ${metric.unit.symbol} · " +
                                             "Time-mean ${fmt(item.timeWeightedMean)} ${metric.unit.symbol} · " +
+                                            "Mean ${fmt(item.sampleMean)} · SD ±${fmt(item.sampleStandardDeviation)} · " +
                                             "Coverage ${String.format(Locale.US, "%.0f", item.coverage * 100)}% · " +
                                             item.evidence.name,
                                         color = Ink
+                                    )
+                                    Text(
+                                        "Min ${fmt(item.minimum)} at " +
+                                            (item.minimumAtElapsedMs?.let {
+                                                "+${(it - duko.window.startMs).coerceAtLeast(0L) / 1000L}s"
+                                            } ?: "unknown") +
+                                            " · peak ${fmt(item.maximum)} at " +
+                                            (item.maximumAtElapsedMs?.let {
+                                                "+${(it - duko.window.startMs).coerceAtLeast(0L) / 1000L}s"
+                                            } ?: "unknown"),
+                                        color = Subtle
                                     )
                                     if (item.warnings.isNotEmpty())
                                         Text(item.warnings.joinToString(", "),
@@ -398,10 +383,20 @@ fun SessionHistoryPanel(refreshKey: Long) {
                                 color = Subtle
                             )
                         }
+                        }
                     }
                 }
             }
         }
-        if (notice != null) Text(notice ?: "", color = Amber)
+        if (state.hasMoreHistory) {
+            OutlinedButton(
+                onClick = model::loadOlder,
+                enabled = !state.loadingHistory,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+            ) { Text("LOAD OLDER SESSIONS") }
+        }
+        if (state.loadingHistory) Text("Refreshing saved runs…", color = Subtle)
+        if (state.exporting) Text("Exporting session CSV…", color = Subtle)
+        if (notice != null) Text(notice, color = Amber)
     }
 }

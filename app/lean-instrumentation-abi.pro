@@ -16,11 +16,43 @@
 -keep class kotlin.** { *; }
 -keep class kotlinx.coroutines.** { *; }
 # AndroidX Test talks to the host Compose runtime and semantics/UI types.
-# Preserve those shared test ABI surfaces, but allow Material3, Foundation,
-# animation and unrelated Compose components to shrink normally. If the
-# optimized instrumentation suite reveals a missing API, add only that API.
+# Preserve those shared test ABI surfaces. Additional ABI keeps below
+# cover the two Foundation subpackages and Material3 directly referenced by
+# independently compiled UI tests; animation and unrelated classes may shrink.
 -keep class androidx.compose.runtime.** { *; }
 -keep class androidx.compose.ui.** { *; }
+
+# M1.4g: independent Compose androidTest code directly compiles against
+# Layout's public ABI (Arrangement.INSTANCE, ColumnScopeInstance, row/column
+# scopes, default-layout facades) and Foundation Text's BasicTextField ABI.
+# The separate test APK is R8-optimized *independently* of the leanDebug
+# target. Target shrinking had removed Arrangement.INSTANCE (mapping:
+# Arrangement -> q.i) and next removed ColumnScopeInstance, while the
+# separately compiled test still referenced them. Keeping only Arrangement
+# left a different missing class on the next run.
+#
+# Preserve only these TWO Foundation subpackages for the testable leanDebug
+# target, rather than repeatedly chasing one missing field/class at a time.
+# This QA APK is NOT a release artifact. Production release and releaseQa use
+# only proguard-rules.pro and retain their existing full R8 shrinking.
+-keep class androidx.compose.foundation.layout.** { *; }
+-keep class androidx.compose.foundation.text.** { *; }
+# M1.6: independently compiled touch-first test APKs call
+# Modifier.verticalScroll via androidx.compose.foundation.ScrollKt.
+# R8 stripped that facade from leanDebug because target app inlined it,
+# causing 3/85 optimized tests to fail with NoClassDefFoundError.
+# Preserve the test ABI *only* in leanDebug; release remains fully optimized.
+-keep class androidx.compose.foundation.ScrollKt { *; }
+
+# M1.4g: after Layout/Text were kept, the same independently compiled
+# controller-focus test revealed Material3.Text's compiled static function
+# signature had been shortened/renamed in the optimized target APK:
+# NoSuchMethodError for Text(String, Modifier, ..., Composer, ...).
+# Other UI tests also invoke Material3 Button, Text and TextField directly.
+# Preserve Material3's PUBLIC test-facing binary API in the leanDebug QA target
+# to prevent a new broken symbol every time a test exercises a different
+# component. Production release and releaseQa are not affected.
+-keep class androidx.compose.material3.** { *; }
 
 # Separately compiled Android instrumentation calls Heimdall classes and
 # constructors by their original binary names. In optimized QA only, retain
@@ -45,3 +77,24 @@
 # Preserve only this AndroidX contract's binary test ABI in leanDebug; the
 # production release rules and actual document-picker behavior stay unchanged.
 -keep class androidx.activity.result.contract.ActivityResultContracts$CreateDocument { *; }
+
+# M1.4g: independently compiled Compose UI tests invoke the Activity Compose
+# setContent extension from their test APK, even though optimized app code
+# normally calls an R8-renamed copy. Keep the public bridge in the QA target.
+# A missing binary name caused NoSuchMethodError on ComponentActivityKt.
+# Preserve the receiver type in the independently compiled setContent ABI.
+# Keeping only the facade is insufficient if R8 renames ComponentActivity.
+-keep class androidx.activity.ComponentActivity { *; }
+-keep class androidx.activity.compose.ComponentActivityKt { *; }
+
+# M1.3 tests instantiate Activity-scoped ViewModels through the *public*
+# ViewModelProvider binary API. Optimized app execution may inline/eliminate
+# it, but androidTest runs in the target process and still links that name.
+# Preserve this small AndroidX Lifecycle surface in the testable QA build.
+# Release/releaseQa remain governed only by the production rules.
+-keep class androidx.lifecycle.ViewModel { *; }
+-keep class androidx.lifecycle.ViewModelProvider { *; }
+-keep class androidx.lifecycle.ViewModelProvider$* { *; }
+-keep class androidx.lifecycle.ViewModelStore { *; }
+-keep class androidx.lifecycle.ViewModelStoreOwner { *; }
+-keep class androidx.lifecycle.ViewModelProvider$Factory { *; }

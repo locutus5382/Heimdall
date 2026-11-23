@@ -7,39 +7,34 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.locutus5382.heimdall.engine.duko.DukoAbReportExport
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import com.locutus5382.heimdall.engine.duko.DukoMetricDifference
 import com.locutus5382.heimdall.engine.duko.DukoComparisonQuality
 import com.locutus5382.heimdall.engine.duko.DukoComparisonReport
 import com.locutus5382.heimdall.engine.duko.DukoMetric
 import com.locutus5382.heimdall.engine.duko.DukoWindow
-import com.locutus5382.heimdall.recording.SavedSession
-import com.locutus5382.heimdall.recording.SessionArchive
 import java.util.Locale
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import androidx.compose.runtime.rememberCoroutineScope
 
-private val AbInk = Color(0xFFEAF1FF)
-private val AbSubtle = Color(0xFF9EADC2)
-private val AbAmber = Color(0xFFF2A900)
-private val AbSlate = Color(0xFF121E32)
+private val AbInk = Color(0xFFF2F6FC)
+private val AbSubtle = Color(0xFF94A7C4)
+private val AbAmber = Color(0xFFF0BD62)
+private val AbSlate = Color(0xFF111C31)
 private fun abNumber(n: Double?) =
     n?.let { String.format(Locale.US, "%.1f", it) } ?: "—"
 
@@ -89,173 +84,102 @@ internal fun customAbWindow(bounds: DukoWindow, startSeconds: String, endSeconds
     return DukoWindow(bounds.startMs + startMs, bounds.startMs + endMs)
 }
 
-/** Read-only A/B selection. Never starts, stops or modifies recordings. */
+/** One A/B screen; lifecycle ViewModel owns selections, work and export snapshots. */
 @Composable
-internal fun DukoComparisonPanel(sessions: List<SavedSession>) {
-    val context = LocalContext.current
-    val archive = remember(context) { SessionArchive(context) }
-    var a by remember { mutableStateOf<Long?>(null) }
-    var b by remember { mutableStateOf<Long?>(null) }
-    var request by remember { mutableStateOf(0) }
-    var presetA by remember { mutableStateOf(AbWindowPreset.FULL) }
-    var presetB by remember { mutableStateOf(AbWindowPreset.FULL) }
-    var startA by remember { mutableStateOf("0") }
-    var endA by remember { mutableStateOf("") }
-    var startB by remember { mutableStateOf("0") }
-    var endB by remember { mutableStateOf("") }
-    var selectedWindows by remember { mutableStateOf<Pair<DukoWindow, DukoWindow>?>(null) }
-    var report by remember { mutableStateOf<DukoComparisonReport?>(null) }
-    var busy by remember { mutableStateOf(false) }
+internal fun DukoComparisonPanel(model: CompareScreenViewModel) {
+    val state by model.ui.collectAsStateWithLifecycle()
+    val sessions = state.sessions
+    val a = state.a
+    val b = state.b
+    val presetA = state.presetA
+    val presetB = state.presetB
+    val startA = state.startA
+    val endA = state.endA
+    val startB = state.startB
+    val endB = state.endB
+    val selectedWindows = state.selectedWindows
+    val report = state.report
+    val busy = state.busy
+    val error = state.issue
+    val exportStatus = state.exportStatus
+    var editRuns by rememberSaveable { mutableStateOf(true) }
 
-    var error by remember { mutableStateOf<String?>(null) }
-    val exportScope = rememberCoroutineScope()
-    // Snapshot when the user requests a document. Never recompute after
-    // the picker returns from possibly changed session selections.
-    var pendingText by remember { mutableStateOf<String?>(null) }
-    var pendingCsv by remember { mutableStateOf<String?>(null) }
-    var exportStatus by remember { mutableStateOf<String?>(null) }
     val textPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/plain")
-    ) { uri ->
-        val payload = pendingText
-        pendingText = null
-        if (uri != null && payload != null) {
-            exportScope.launch {
-                exportStatus = "Saving TXT…"
-                exportStatus = try {
-                    withContext(Dispatchers.IO) {
-                        context.contentResolver.openOutputStream(uri, "wt")?.use {
-                            it.write(payload.toByteArray(Charsets.UTF_8))
-                            it.flush()
-                        } ?: throw java.io.IOException("DOCUMENT_PROVIDER_REFUSED_WRITE")
-                    }
-                    "TXT report saved."
-                } catch (cancel: CancellationException) {
-                    throw cancel
-                } catch (e: Exception) {
-                    "TXT export failed: " + e.javaClass.simpleName
-                }
-            }
-        } else exportStatus = "TXT export cancelled."
-    }
+    ) { uri -> model.onExportResult(ComparisonExport.TXT, uri) }
     val csvPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/csv")
-    ) { uri ->
-        val payload = pendingCsv
-        pendingCsv = null
-        if (uri != null && payload != null) {
-            exportScope.launch {
-                exportStatus = "Saving CSV…"
-                exportStatus = try {
-                    withContext(Dispatchers.IO) {
-                        context.contentResolver.openOutputStream(uri, "wt")?.use {
-                            it.write(payload.toByteArray(Charsets.UTF_8))
-                            it.flush()
-                        } ?: throw java.io.IOException("DOCUMENT_PROVIDER_REFUSED_WRITE")
-                    }
-                    "CSV report saved."
-                } catch (cancel: CancellationException) {
-                    throw cancel
-                } catch (e: Exception) {
-                    "CSV export failed: " + e.javaClass.simpleName
-                }
-            }
-        } else exportStatus = "CSV export cancelled."
-    }
-
-    LaunchedEffect(a, b, request) {
-        report = null
-        selectedWindows = null
-        error = null
-        exportStatus = null
-        val left = a
-        val right = b
-        if (request == 0 || left == null || right == null || left == right) {
-            busy = false
-            return@LaunchedEffect
-        }
-        busy = true
-        try {
-            val boundsA = archive.dukoMonotonicBounds(left)
-            val boundsB = archive.dukoMonotonicBounds(right)
-            val windowA = boundsA?.let { if (presetA == AbWindowPreset.CUSTOM) customAbWindow(it, startA, endA) else presetA.select(it) }
-            val windowB = boundsB?.let { if (presetB == AbWindowPreset.CUSTOM) customAbWindow(it, startB, endB) else presetB.select(it) }
-            if (windowA == null || windowB == null) {
-                error = "Invalid window: enter start/end seconds within each recorded session (end must exceed start)."
-            } else {
-                report = archive.dukoCompare(left, right, windowA, windowB)
-                if (report == null) error = "Selected windows have insufficient monotonic evidence."
-                else selectedWindows = windowA to windowB
-            }
-        } catch (e: Exception) {
-            error = "Comparison unavailable: " + e.javaClass.simpleName
-        } finally {
-            busy = false
-        }
-    }
+    ) { uri -> model.onExportResult(ComparisonExport.CSV, uri) }
     Column(
         modifier = Modifier.fillMaxWidth()
             .background(AbSlate, RoundedCornerShape(17.dp))
             .padding(13.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text("DUKO A/B COMPARISON", color = AbAmber)
-        Text("Select two distinct completed sessions. User tags do not verify hardware settings.", color = AbSubtle)
+        Text("DUKO / A–B", color = AbAmber, fontWeight = FontWeight.SemiBold)
+        Text("A #${a ?: "—"} (baseline)   ·   B #${b ?: "—"} (candidate)",
+            color = AbInk, fontSize = 15.sp)
+        Text("Compare measured device telemetry—not FPS or game speed.",
+            color = AbSubtle)
+        OutlinedButton(
+            onClick = { editRuns = !editRuns },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        ) { Text(if (editRuns) "HIDE RUN & WINDOW SETTINGS" else
+            "EDIT RUNS & ANALYSIS WINDOWS") }
+        if (editRuns) {
+        Text("SELECT TWO RECORDED SESSIONS", color = AbAmber)
+        Text("User tags describe declared conditions; they do not verify the hardware.",
+            color = AbSubtle)
         sessions.forEach { session ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("#${session.id}", color = AbInk, modifier = Modifier.weight(1f))
-                OutlinedButton(onClick = { a = session.id; request = 0 }) {
+                OutlinedButton(onClick = { model.selectA(session.id) }) {
                     Text(if (a == session.id) "A ✓" else "SET A")
                 }
-                OutlinedButton(onClick = { b = session.id; request = 0 }) {
+                OutlinedButton(onClick = { model.selectB(session.id) }) {
                     Text(if (b == session.id) "B ✓" else "SET B")
                 }
             }
         }
+        if (state.hasMoreSessions) {
+            OutlinedButton(
+                onClick = model::loadOlder,
+                enabled = !state.loading,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            ) { Text("LOAD OLDER RUNS") }
+        }
         Text("Analysis windows · each recording is bounded independently", color = AbSubtle)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = {
-                presetA = AbWindowPreset.entries[
-                    (presetA.ordinal + 1) % AbWindowPreset.entries.size
-                ]
-                request = 0
-            }) { Text("A: " + presetA.label) }
-            OutlinedButton(onClick = {
-                presetB = AbWindowPreset.entries[
-                    (presetB.ordinal + 1) % AbWindowPreset.entries.size
-                ]
-                request = 0
-            }) { Text("B: " + presetB.label) }
+            OutlinedButton(onClick = { model.cycleA() }) { Text("A: " + presetA.label) }
+            OutlinedButton(onClick = { model.cycleB() }) { Text("B: " + presetB.label) }
         }
         if (presetA == AbWindowPreset.CUSTOM) {
             Text("A: seconds from first recorded sample", color = AbSubtle)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(startA, { startA = it; request = 0 },
+                OutlinedTextField(startA, { model.setStartA(it) },
                     label = { Text("Start s") }, singleLine = true, modifier = Modifier.weight(1f))
-                OutlinedTextField(endA, { endA = it; request = 0 },
+                OutlinedTextField(endA, { model.setEndA(it) },
                     label = { Text("End s") }, singleLine = true, modifier = Modifier.weight(1f))
             }
         }
         if (presetB == AbWindowPreset.CUSTOM) {
             Text("B: seconds from first recorded sample", color = AbSubtle)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(startB, { startB = it; request = 0 },
+                OutlinedTextField(startB, { model.setStartB(it) },
                     label = { Text("Start s") }, singleLine = true, modifier = Modifier.weight(1f))
-                OutlinedTextField(endB, { endB = it; request = 0 },
+                OutlinedTextField(endB, { model.setEndB(it) },
                     label = { Text("End s") }, singleLine = true, modifier = Modifier.weight(1f))
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
-                enabled = a != null && b != null && a != b && !busy,
-                onClick = { request++ }
+                enabled = state.canCompare,
+                modifier = Modifier.heightIn(min = 48.dp),
+                onClick = { model.compare() }
             ) { Text("COMPARE") }
-            OutlinedButton(onClick = {
-                a = null; b = null; request = 0; report = null; error = null
-                selectedWindows = null
-                presetA = AbWindowPreset.FULL; presetB = AbWindowPreset.FULL
-                startA = "0"; endA = ""; startB = "0"; endB = ""
-            }) { Text("CLEAR") }
+            OutlinedButton(onClick = { model.clear() },
+                modifier = Modifier.heightIn(min = 48.dp)) { Text("CLEAR") }
+        }
         }
         if (busy) Text("Analyzing recorded evidence…", color = AbSubtle)
         if (error != null) Text(error.orEmpty(), color = AbAmber)
@@ -265,26 +189,34 @@ internal fun DukoComparisonPanel(sessions: List<SavedSession>) {
                 Text("A: ${wa.startMs}–${wa.endMs} ms (${wa.durationMs} ms)", color = AbSubtle)
                 Text("B: ${wb.startMs}–${wb.endMs} ms (${wb.durationMs} ms)", color = AbSubtle)
             }
-            Text("A #${result.sessionA} → B #${result.sessionB} · ${result.quality.name}", color = AbInk)
+            Text("COMPARISON SUMMARY", color = AbAmber, fontWeight = FontWeight.Bold)
+            Text("A #${result.sessionA} → B #${result.sessionB} · ${result.quality.name.replace('_', ' ')}",
+                color = AbInk)
+            val qualified = result.metrics.values.count {
+                it.quality != DukoComparisonQuality.NOT_COMPARABLE
+            }
+            Text("${qualified} of ${result.metrics.size} reported metrics permit a " +
+                "qualified comparison. Interpret each metric's evidence separately.",
+                color = AbSubtle)
 
             selectedWindows?.let { (wa, wb) ->
                 Text("DUKO REPORT · comparison-only · saved locally", color = AbAmber)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = {
-                        pendingText = DukoAbReportExport.text(result, wa, wb)
-                        exportStatus = null
-                        textPicker.launch("DUKO_AB_${result.sessionA}_${result.sessionB}.txt")
-                    }) { Text("SAVE TXT") }
-                    OutlinedButton(onClick = {
-                        pendingCsv = DukoAbReportExport.csv(result, wa, wb)
-                        exportStatus = null
-                        csvPicker.launch("DUKO_AB_${result.sessionA}_${result.sessionB}.csv")
-                    }) { Text("SAVE CSV") }
+                    OutlinedButton(
+                        enabled = state.pendingExport == null && !state.writing,
+                        onClick = { model.prepareExport(ComparisonExport.TXT)?.let(textPicker::launch) }
+                    ) { Text("SAVE TXT") }
+                    OutlinedButton(
+                        enabled = state.pendingExport == null && !state.writing,
+                        onClick = { model.prepareExport(ComparisonExport.CSV)?.let(csvPicker::launch) }
+                    ) { Text("SAVE CSV") }
                 }
             }
             result.contextWarnings.forEach {
                 Text(it.replace('_', ' '), color = AbSubtle)
             }
+            Text("COMPARISON RESULTS  /  MEASURED EVIDENCE",
+                color = AbAmber, fontWeight = FontWeight.SemiBold)
             listOf(
                 DukoMetric.CPU_LOAD, DukoMetric.GPU_LOAD,
                 DukoMetric.CPU_CLOCK, DukoMetric.GPU_CLOCK,
@@ -292,18 +224,55 @@ internal fun DukoComparisonPanel(sessions: List<SavedSession>) {
                 DukoMetric.GPU_TEMPERATURE, DukoMetric.AVAILABLE_RAM
             ).forEach { metric ->
                 result.metrics[metric]?.let { item ->
-                    val delta = if (item.quality == DukoComparisonQuality.NOT_COMPARABLE)
-                        "not comparable"
-                    else "Δ ${abNumber(item.delta)} ${metric.unit.symbol} · ${abNumber(item.percentChange)}%"
-                    Text(
-                        "${metric.name.replace('_', ' ')}: A ${abNumber(item.aMean)} / B ${abNumber(item.bMean)} ${metric.unit.symbol} · $delta · ${item.quality.name}",
-                        color = AbInk
-                    )
-                    if (item.warnings.isNotEmpty())
-                        Text(item.warnings.joinToString(", ").replace('_', ' '), color = AbSubtle)
+                    ComparisonMetricCard(metric, item)
                 }
             }
             Text("Measured telemetry is not FPS, a causal performance claim or a game benchmark.", color = AbSubtle)
+        }
+    }
+}
+
+/** One qualified metric per card. Never invent a delta for blocked evidence. */
+@Composable
+private fun ComparisonMetricCard(
+    metric: DukoMetric,
+    item: DukoMetricDifference,
+) {
+    val comparable = item.quality != DukoComparisonQuality.NOT_COMPARABLE
+    Column(
+        Modifier.fillMaxWidth()
+            .background(Color(0xFF132038), RoundedCornerShape(12.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(metric.name.replace('_', ' '), color = AbInk,
+                fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text(item.quality.name.replace('_', ' '),
+                color = if (comparable) AbAmber else Color(0xFFF16B78),
+                fontSize = 10.sp)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text("A  /  BASELINE", fontSize = 10.sp, color = AbSubtle)
+                Text(abNumber(item.aMean) + " " + metric.unit.symbol,
+                    color = AbInk, fontSize = 17.sp, fontWeight = FontWeight.Medium)
+            }
+            Column(Modifier.weight(1f)) {
+                Text("B  /  CANDIDATE", fontSize = 10.sp, color = AbSubtle)
+                Text(abNumber(item.bMean) + " " + metric.unit.symbol,
+                    color = AbInk, fontSize = 17.sp, fontWeight = FontWeight.Medium)
+            }
+        }
+        Text(
+            if (!comparable) "DELTA NOT SUPPORTED BY AVAILABLE EVIDENCE"
+            else "B − A: ${abNumber(item.delta)} ${metric.unit.symbol}  ·  " +
+                "${abNumber(item.percentChange)}%",
+            color = if (comparable) AbAmber else AbSubtle, fontSize = 12.sp
+        )
+        if (item.warnings.isNotEmpty()) {
+            Text(item.warnings.joinToString(" · ").replace('_', ' '),
+                color = AbSubtle, fontSize = 11.sp)
         }
     }
 }

@@ -33,6 +33,10 @@ data class DeviceSample(
     val batteryChargeCounterUah: Long? = null,
     val batteryEnergyCounterNwh: Long? = null,
     val thermalHeadroomObservedElapsedMs: Long? = null,
+    val cpuCoreLoadPercent: Map<Int, Double> = emptyMap(),
+    val psiCpuSomeAvg10: Double? = null,
+    val psiMemorySomeAvg10: Double? = null,
+    val psiMemoryFullAvg10: Double? = null,
 )
 
 sealed interface RecorderStatus {

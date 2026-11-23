@@ -38,6 +38,10 @@ class DukoStatisticsAccumulator(
     private var coverageMs = 0L
     private var longestGap = 0L
     private var weightedIntegral = 0.0
+    private var minValue: Double? = null
+    private var maxValue: Double? = null
+    private var minAt: Long? = null
+    private var maxAt: Long? = null
 
     fun accept(row: DukoObservation) {
         if (row.metric != metric ||
@@ -59,7 +63,12 @@ class DukoStatisticsAccumulator(
             longestGap = max(longestGap, row.elapsedMs - priorTime)
         }
         precedingTime = row.elapsedMs
-        if (!currentValid) missing++ else values.add(requireNotNull(row.value))
+        if (!currentValid) missing++ else {
+            val v = requireNotNull(row.value)
+            values.add(v)
+            if (minValue == null || v < minValue!!) { minValue = v; minAt = row.elapsedMs }
+            if (maxValue == null || v > maxValue!!) { maxValue = v; maxAt = row.elapsedMs }
+        }
         if (currentValid) {
             val identity = row.sourceId?.trim()
                 ?.takeIf { it.isNotEmpty() } to row.origin
@@ -133,7 +142,9 @@ class DukoStatisticsAccumulator(
             timeWeightedMean = if (coverageMs > 0L)
                 weightedIntegral / coverageMs.toDouble() else null,
             sampleStandardDeviation = stdDev,
-            evidence = grade, warnings = warnings
+            evidence = grade, warnings = warnings,
+            minimumAtElapsedMs = minAt,
+            maximumAtElapsedMs = maxAt,
         )
     }
 }

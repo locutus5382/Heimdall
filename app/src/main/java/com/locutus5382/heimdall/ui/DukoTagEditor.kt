@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,6 +21,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -30,9 +34,33 @@ import com.locutus5382.heimdall.engine.duko.MeasurementOrigin
 import com.locutus5382.heimdall.recording.DukoSessionContextStore
 import kotlinx.coroutines.launch
 
-private val DukoIce = Color(0xFFEAF1FF)
+private val DukoIce = Color(0xFFF2F6FC)
 private val DukoMuted = Color(0xFF94A7C4)
 private val DukoGold = Color(0xFFF0BD62)
+
+private enum class TagEditorPage(val label: String) {
+    WORKLOAD("GAME / DRIVER"), DEVICE("DEVICE SETTINGS"), NOTES("NOTES / SAVE")
+}
+
+/** Persist the unsaved fields when the Sessions panel switches tabs/rotates. */
+private val tagEditorSaver = listSaver<MutableState<DukoSessionContext>, String>(
+    save = { state -> with(state.value) {
+        listOf(game, emulator, graphicsDriver, performanceMode, fanProfile,
+            clusterTuneProfile, clusterTuneEnabled?.toString() ?: "?",
+            tuningTool, notes, origin.name)
+    } },
+    restore = { p ->
+        mutableStateOf(DukoSessionContext(
+            game = p[0], emulator = p[1], graphicsDriver = p[2],
+            performanceMode = p[3], fanProfile = p[4],
+            clusterTuneProfile = p[5],
+            clusterTuneEnabled = when (p[6]) { "true" -> true; "false" -> false; else -> null },
+            tuningTool = p[7], notes = p[8],
+            origin = runCatching { MeasurementOrigin.valueOf(p[9]) }
+                .getOrDefault(MeasurementOrigin.UNKNOWN)
+        ))
+    }
+)
 
 /** Curated user-provided Obtainium emulation catalog; these are labels, not detected apps. */
 private val emulatorCatalog = listOf(
@@ -85,33 +113,43 @@ internal fun DukoTagEditor(sessionId: Long? = null) {
     val app = LocalContext.current.applicationContext
     val store = remember(app) { DukoSessionContextStore(app) }
     val scope = rememberCoroutineScope()
-    var tags by remember(sessionId) { mutableStateOf(store.readDraft()) }
-    var message by remember(sessionId) { mutableStateOf<String?>(null) }
-    var loading by remember(sessionId) { mutableStateOf(sessionId != null) }
+    var tags by rememberSaveable(sessionId, saver = tagEditorSaver) {
+        mutableStateOf(store.readDraft())
+    }
+    var nextOnly by rememberSaveable(sessionId) {
+        mutableStateOf(sessionId == null && store.isNextOnly())
+    }
+    var message by rememberSaveable(sessionId) { mutableStateOf<String?>(null) }
+    var step by rememberSaveable(sessionId) { mutableStateOf(TagEditorPage.WORKLOAD.name) }
+    var edited by rememberSaveable(sessionId) { mutableStateOf(false) }
+    var loading by rememberSaveable(sessionId) { mutableStateOf(sessionId != null) }
     LaunchedEffect(sessionId) {
-        if (sessionId != null) {
+        if (sessionId != null && !edited) {
             loading = true
             try { tags = store.get(sessionId) }
             catch (e: Exception) {
                 message = "Could not read session tags: ${e.javaClass.simpleName}"
             } finally { loading = false }
+        } else {
+            loading = false
         }
     }
 
     fun declared(p: DukoSessionContext) {
         tags = p.copy(origin = MeasurementOrigin.USER_DECLARED)
+        edited = true
         message = null
     }
 
     Column(
         modifier = Modifier.fillMaxWidth()
-            .background(Color(0xFF121E32), RoundedCornerShape(18.dp))
-            .border(1.dp, Color(0xFF26364F), RoundedCornerShape(18.dp))
+            .background(Color(0xFF111C31), RoundedCornerShape(18.dp))
+            .border(1.dp, Color(0xFF192B49), RoundedCornerShape(18.dp))
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         Text(
-            if (sessionId == null) "DUKO · NEXT TEST PROFILE"
+            if (sessionId == null) "NEXT TEST CONDITIONS"
             else "DUKO · SESSION #$sessionId",
             color = DukoGold
         )
@@ -122,6 +160,37 @@ internal fun DukoTagEditor(sessionId: Long? = null) {
             color = DukoMuted
         )
         if (loading) Text("Loading session conditions…", color = DukoMuted)
+        if (sessionId == null) {
+            Text("APPLIES TO", color = DukoMuted)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                FilterChip(selected = !nextOnly, onClick = {
+                    nextOnly = false; edited = true; message = null
+                }, label = { Text("REUSABLE PRESET") },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp))
+                FilterChip(selected = nextOnly, onClick = {
+                    nextOnly = true; edited = true; message = null
+                }, label = { Text("NEXT SESSION ONLY") },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp))
+            }
+            Text(if (nextOnly)
+                "Settings are cleared after a successfully committed new session. "
+                    + "Confirm their capture in the session details."
+                else "These labels will carry forward; confirm each run before recording.",
+                color = DukoMuted)
+        }
+        Text(if (edited) "UNSAVED CHANGES — save before leaving this screen."
+            else "Changes are local until you explicitly save.", color = if (edited)
+                DukoGold else DukoMuted)
+        Text("TEST SETUP", color = DukoGold)
+        TagEditorPage.entries.forEach { page ->
+            FilterChip(
+                selected = step == page.name,
+                onClick = { step = page.name },
+                label = { Text(page.label) },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            )
+        }
+        if (step == TagEditorPage.WORKLOAD.name) {
         OutlinedTextField(tags.game, { declared(tags.copy(game = it)) },
             label = { Text("Game / workload") }, singleLine = true,
             modifier = Modifier.fillMaxWidth())
@@ -151,6 +220,8 @@ internal fun DukoTagEditor(sessionId: Long? = null) {
         }, label = { Text("Graphics driver and version") },
             singleLine = true, modifier = Modifier.fillMaxWidth())
 
+        }
+        if (step == TagEditorPage.DEVICE.name) {
         Text("DEVICE PERFORMANCE MODE", color = DukoMuted)
         DukoOptions(
             choices = listOf("Standard", "Performance", "High Performance", "Custom"),
@@ -203,6 +274,8 @@ internal fun DukoTagEditor(sessionId: Long? = null) {
         }, label = { Text("Tuning tool (e.g. ClusterTune)") },
             singleLine = true, modifier = Modifier.fillMaxWidth())
 
+        }
+        if (step == TagEditorPage.NOTES.name) {
         OutlinedTextField(tags.notes, { declared(tags.copy(notes = it)) },
             label = { Text("Test notes / cold or warm run / settings") },
             maxLines = 3, modifier = Modifier.fillMaxWidth())
@@ -213,19 +286,23 @@ internal fun DukoTagEditor(sessionId: Long? = null) {
                 "fan profile or performance mode is active.",
             color = DukoMuted
         )
+        }
         OutlinedButton(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
             enabled = !loading,
             onClick = {
                 val saved = tags.sanitized().copy(
                     origin = MeasurementOrigin.USER_DECLARED)
                 if (sessionId == null) {
-                    store.saveDraft(saved)
-                    message = "Saved as the next recording's test profile."
+                    store.saveDraft(saved, nextOnly)
+                    edited = false
+                    message = if (nextOnly) "Saved for the next recording only."
+                        else "Saved as a reusable test profile."
                 } else {
                     scope.launch {
                         try {
                             store.save(sessionId, saved)
+                            edited = false
                             message = "Session #$sessionId test conditions updated."
                         } catch (e: Exception) {
                             message = "Save failed: ${e.javaClass.simpleName}"

@@ -70,7 +70,7 @@ class DukoM4bIndexAndroidTest {
         SQLiteDatabase.openDatabase(
             file.absolutePath, null, SQLiteDatabase.OPEN_READONLY
         ).use { db ->
-            assertEquals(6, db.version)
+            assertEquals(7, db.version)
             val names = mutableSetOf<String>()
             db.rawQuery("PRAGMA index_list(samples)", null).use { c ->
                 while (c.moveToNext()) names += c.getString(1)

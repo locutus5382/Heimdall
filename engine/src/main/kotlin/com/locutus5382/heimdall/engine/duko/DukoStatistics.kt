@@ -34,6 +34,8 @@ data class DukoMetricAnalysis(
     val sampleStandardDeviation: Double?,
     val evidence: DukoEvidence,
     val warnings: List<String>,
+    val minimumAtElapsedMs: Long? = null,
+    val maximumAtElapsedMs: Long? = null,
 )
 
 object DukoStatistics {
@@ -71,6 +73,10 @@ object DukoStatistics {
         var coverageMs = 0L
         var longestGap = 0L
         var weightedIntegral = 0.0
+        var minValue: Double? = null
+        var maxValue: Double? = null
+        var minAt: Long? = null
+        var maxAt: Long? = null
         for (row in input) {
             if (precedingTime != null && row.elapsedMs <= precedingTime) {
                 reversed++
@@ -81,7 +87,12 @@ object DukoStatistics {
             }
             precedingTime = row.elapsedMs
             val currentValid = row.isValid()
-            if (!currentValid) missing++ else values += requireNotNull(row.value)
+            if (!currentValid) missing++ else {
+                val v = requireNotNull(row.value)
+                values += v
+                if (minValue == null || v < minValue!!) { minValue = v; minAt = row.elapsedMs }
+                if (maxValue == null || v > maxValue!!) { maxValue = v; maxAt = row.elapsedMs }
+            }
             if (currentValid) {
                 val identity = row.sourceId?.trim()
                     ?.takeIf { it.isNotEmpty() } to row.origin
@@ -150,7 +161,9 @@ object DukoStatistics {
             timeWeightedMean = if (coverageMs > 0L)
                 weightedIntegral / coverageMs.toDouble() else null,
             sampleStandardDeviation = stdDev,
-            evidence = grade, warnings = warnings
+            evidence = grade, warnings = warnings,
+            minimumAtElapsedMs = minAt,
+            maximumAtElapsedMs = maxAt,
         )
     }
 }

@@ -11,7 +11,6 @@ import com.locutus5382.heimdall.engine.DeviceSample
 import com.locutus5382.heimdall.engine.DeviceSampleSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /**
  * Best-effort, read-only and offline. A source is discovered only through the
@@ -32,13 +31,10 @@ internal class AndroidTelemetrySource(
     private val manager = app.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
     private val power = app.getSystemService(Context.POWER_SERVICE) as PowerManager
     private val activity = app.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-    private val whitespace = Regex("\\s+")
-    private val procStat = File("/proc/stat")
-    private var previousCpu: Pair<Long, Long>? = null
+    private val procReader = ProcSignalReader()
     private val batteryFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
     private val memoryInfo = ActivityManager.MemoryInfo()
     private val thermalGate = ThermalHeadroomGate()
-    private var procStatBlocked = false
 
     override suspend fun read(): DeviceSample = withContext(Dispatchers.IO) {
         // Each source is isolated: one SELinux denial must not abort the tick.
@@ -90,9 +86,10 @@ internal class AndroidTelemetrySource(
             runCatching { power.getThermalHeadroom(0).toDouble() }
                 .getOrNull()?.takeIf { v -> v.isFinite() && v in 0.0..2.0 }
         }
+        val proc = procReader.read(now)
         DeviceSample(
             observedAtMs = System.currentTimeMillis(),
-            cpuLoadPercent = cpuPercentOrNull(),
+            cpuLoadPercent = proc.overallCpuPercent,
             batteryLevelPercent = percent,
             batteryTemperatureC = batteryTemp,
             availableMemoryMiB = mem,
@@ -117,30 +114,11 @@ internal class AndroidTelemetrySource(
             batteryEnergyCounterNwh = energyCounter,
             thermalHeadroomObservedElapsedMs =
                 headroomQueryAt?.takeIf { headroom != null },
+            cpuCoreLoadPercent = proc.perCorePercent,
+            psiCpuSomeAvg10 = proc.cpuPsiSomeAvg10,
+            psiMemorySomeAvg10 = proc.memoryPsiSomeAvg10,
+            psiMemoryFullAvg10 = proc.memoryPsiFullAvg10,
         )
     }
 
-    private fun cpuPercentOrNull(): Double? {
-        if (procStatBlocked) return null
-        return runCatching {
-        // /proc/stat is restricted on many Android builds. Never substitute
-        // the clock/max-clock ratio and label it CPU utilization.
-        val line = procStat.useLines { it.first() }
-        val fields = line.trim().split(whitespace).drop(1)
-        val values = fields.take(8).map(String::toLong)
-        if (values.size < 4) return@runCatching null
-        val total = values.sum()
-        val idle = values[3] + values.getOrElse(4) { 0L }
-        val previous = previousCpu
-        previousCpu = total to idle
-        if (previous == null || total <= previous.first) null
-        else (100.0 * (1.0 -
-            (idle - previous.second).toDouble() /
-            (total - previous.first).toDouble())).coerceIn(0.0, 100.0)
-    }.onFailure { cause ->
-        if (cause is SecurityException ||
-            cause is java.io.FileNotFoundException ||
-            cause is java.nio.file.AccessDeniedException) procStatBlocked = true
-    }.getOrNull()
-    }
 }

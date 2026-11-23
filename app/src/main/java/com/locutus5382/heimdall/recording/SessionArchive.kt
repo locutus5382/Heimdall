@@ -34,10 +34,13 @@ data class SessionOverview(
     val totalSamples: Long,
 )
 
-class SessionArchive(context: Context) {
+class SessionArchive(
+    context: Context,
+    private val databaseName: String = HeimdallDatabase.NAME
+) {
     private val app = context.applicationContext
-    private val path = app.getDatabasePath(HeimdallDatabase.NAME)
-    private val helper by lazy { HeimdallDatabase.helper(app) }
+    private val path = app.getDatabasePath(databaseName)
+    private val helper by lazy { HeimdallDatabase.helper(app, databaseName) }
 
     /** Read-only safety check used by Quick Settings after process recreation. */
     suspend fun unfinishedSessionId(): Long? = withContext(Dispatchers.IO) {
@@ -133,7 +136,7 @@ class SessionArchive(context: Context) {
         sessionId: Long,
         selectedWindow: DukoWindow? = null,
     ): DukoFoundationReport? =
-        DukoSessionAnalyzer(app).analyze(sessionId, selectedWindow)
+        DukoSessionAnalyzer(app, databaseName).analyze(sessionId, selectedWindow)
 
 
     /**
@@ -178,10 +181,10 @@ class SessionArchive(context: Context) {
         require(sessionA > 0L && sessionB > 0L && sessionA != sessionB) {
             "TWO_DISTINCT_SESSIONS_REQUIRED"
         }
-        val analyzer = DukoSessionAnalyzer(app)
+        val analyzer = DukoSessionAnalyzer(app, databaseName)
         val a = analyzer.analyze(sessionA, windowA) ?: return@withContext null
         val b = analyzer.analyze(sessionB, windowB) ?: return@withContext null
-        val contexts = DukoSessionContextStore(app)
+        val contexts = DukoSessionContextStore(app, databaseName)
         DukoComparison.compare(
             DukoComparisonInput(
                 sessionId = sessionA,
@@ -219,7 +222,9 @@ class SessionArchive(context: Context) {
                             "cpu_temp_c,gpu_temp_c,cpu_policy_clocks,cpu_policy_limits,cpu_policy_hardware_max," +
                             "battery_raw_current_ua,battery_raw_voltage_mv,battery_status," +
                             "battery_charge_counter_uah,battery_energy_counter_nwh," +
-                            "thermal_headroom_observed_elapsed_ms\n"
+                            "thermal_headroom_observed_elapsed_ms," +
+                            "cpu_core_load_pct,psi_cpu_some_avg10," +
+                            "psi_memory_some_avg10,psi_memory_full_avg10\n"
                         )
                         database.rawQuery(
                             """
@@ -231,7 +236,9 @@ class SessionArchive(context: Context) {
                                    cpu_policy_clocks, cpu_policy_limits, cpu_policy_hardware_max,
                                    battery_raw_current_ua, battery_raw_voltage_mv, battery_status,
                                    battery_charge_counter_uah, battery_energy_counter_nwh,
-                                   thermal_headroom_observed_elapsed_ms
+                                   thermal_headroom_observed_elapsed_ms,
+                                   cpu_core_load_pct,psi_cpu_some_avg10,
+                                   psi_memory_some_avg10,psi_memory_full_avg10
                             FROM samples WHERE session_id=? ORDER BY id
                             """.trimIndent(),
                             arrayOf(sessionId.toString())

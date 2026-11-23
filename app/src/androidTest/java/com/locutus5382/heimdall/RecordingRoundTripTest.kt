@@ -30,13 +30,14 @@ class RecordingRoundTripTest {
     @get:Rule
     val compose = createAndroidComposeRule<MainActivity>()
 
-    private fun <T> await(timeoutMs: Long, body: () -> T?): T {
+    private fun <T> await(stage: String, timeoutMs: Long, body: () -> T?): T {
         val until = SystemClock.elapsedRealtime() + timeoutMs
         while (SystemClock.elapsedRealtime() < until) {
             body()?.let { return it }
             Thread.sleep(100L)
         }
-        throw AssertionError("Heimdall UI / service / SQLite round-trip timed out")
+        throw AssertionError("Heimdall round-trip timed out at $stage; recorder=" +
+            RecorderStatusHub.state.value.toString())
     }
 
     @Test
@@ -51,7 +52,7 @@ class RecordingRoundTripTest {
 
         // The previous test called the Service directly and missed broken UI wiring.
         compose.onNodeWithText("START").performClick()
-        val recording = await(30_000L) {
+        val recording = await("initial persisted recording", 30_000L) {
             (RecorderStatusHub.state.value as? RecorderStatus.Recording)
                 ?.takeIf { it.persistedSamples > 0L }
         }
@@ -77,7 +78,7 @@ class RecordingRoundTripTest {
 
         // STOP must also originate from the dashboard, not a direct Service call.
         compose.onNodeWithText("STOP & SAVE").performClick()
-        val finished = await(30_000L) {
+        val finished = await("original session completion", 30_000L) {
             (RecorderStatusHub.state.value as? RecorderStatus.Finished)
                 ?.takeIf { it.sessionId == originalId }
         }
@@ -120,7 +121,7 @@ class RecordingRoundTripTest {
             }
             db.rawQuery("PRAGMA user_version", null).use { cursor ->
                 assertTrue(cursor.moveToFirst())
-                assertEquals(6, cursor.getInt(0))
+                assertEquals(7, cursor.getInt(0))
             }
             db.rawQuery(
                 "SELECT stop_requested_at_ms FROM sessions WHERE id=?",
@@ -141,13 +142,13 @@ class RecordingRoundTripTest {
         // Repeated recordings are an important real-world failure mode.
         // A prior completed row must be immutable when another session starts.
         compose.onNodeWithText("START").performClick()
-        val next = await(30_000L) {
+        val next = await("second persisted recording", 30_000L) {
             (RecorderStatusHub.state.value as? RecorderStatus.Recording)
                 ?.takeIf { it.sessionId != originalId && it.persistedSamples > 0L }
         }
         assertTrue(next.sessionId > originalId)
         compose.onNodeWithText("STOP & SAVE").performClick()
-        val second = await(30_000L) {
+        val second = await("second session completion", 30_000L) {
             (RecorderStatusHub.state.value as? RecorderStatus.Finished)
                 ?.takeIf { it.sessionId == next.sessionId }
         }
@@ -171,7 +172,7 @@ class RecordingRoundTripTest {
         app.stopService(Intent(app, HeimdallRecorderService::class.java))
         Thread.sleep(200)
         compose.activityRule.scenario.recreate()
-        val interrupted = await(30_000L) {
+        val interrupted = await("orphaned session recovery", 30_000L) {
             (RecorderStatusHub.state.value as? RecorderStatus.Finished)
                 ?.takeIf { it.sessionId == strandedId &&
                     it.reason == "INTERRUPTED" }
@@ -194,7 +195,7 @@ class RecordingRoundTripTest {
         app.stopService(Intent(app, HeimdallRecorderService::class.java))
         Thread.sleep(200)
         compose.activityRule.scenario.recreate()
-        await(30_000L) {
+        await("durable-stop recovery", 30_000L) {
             (RecorderStatusHub.state.value as? RecorderStatus.Finished)
                 ?.takeIf { it.sessionId == stoppingId }
         }
