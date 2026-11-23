@@ -45,3 +45,21 @@
 # Preserve only this AndroidX contract's binary test ABI in leanDebug; the
 # production release rules and actual document-picker behavior stay unchanged.
 -keep class androidx.activity.result.contract.ActivityResultContracts$CreateDocument { *; }
+
+# M1.4g: independently compiled Compose UI tests invoke the Activity Compose
+# setContent extension from their test APK, even though optimized app code
+# normally calls an R8-renamed copy. Keep the public bridge in the QA target.
+# A missing binary name caused NoSuchMethodError on ComponentActivityKt.
+-keep class androidx.activity.compose.ComponentActivityKt { *; }
+
+# M1.3 tests instantiate Activity-scoped ViewModels through the *public*
+# ViewModelProvider binary API. Optimized app execution may inline/eliminate
+# it, but androidTest runs in the target process and still links that name.
+# Preserve this small AndroidX Lifecycle surface in the testable QA build.
+# Release/releaseQa remain governed only by the production rules.
+-keep class androidx.lifecycle.ViewModel { *; }
+-keep class androidx.lifecycle.ViewModelProvider { *; }
+-keep class androidx.lifecycle.ViewModelProvider$* { *; }
+-keep class androidx.lifecycle.ViewModelStore { *; }
+-keep class androidx.lifecycle.ViewModelStoreOwner { *; }
+-keep class androidx.lifecycle.ViewModelProvider$Factory { *; }
