@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
@@ -25,6 +26,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import com.locutus5382.heimdall.engine.RecorderStatus
+import com.locutus5382.heimdall.recording.HeimdallCanvasView
 import com.locutus5382.heimdall.engine.HudDock
 import com.locutus5382.heimdall.engine.HudLayout
 import com.locutus5382.heimdall.engine.HudMetric
@@ -38,7 +42,13 @@ import java.util.Locale
  * preferences when the overlay is already visible.
  */
 @Composable
-fun HudStudioPanel() {
+fun HudStudioPanel(
+    hudEnabled: Boolean = false,
+    overlayPermission: Boolean = false,
+    recorderStatus: RecorderStatus = RecorderStatus.Idle,
+    onToggleHud: () -> Unit = {},
+    onRequestOverlayPermission: () -> Unit = {},
+) {
     val context = LocalContext.current.applicationContext
     val store = remember(context) { HudProfileStore(context) }
     var config by remember { mutableStateOf(store.read()) }
@@ -79,9 +89,67 @@ fun HudStudioPanel() {
                 "same recording HUD; they never start a second collector.",
             color = muted
         )
+        // The preview uses the SAME Canvas renderer as the in-game overlay;
+        // it does not create a window or a second recorder. With no artificial
+        // DeviceSample, unmeasured readings correctly display as unavailable.
+        Text("LIVE LAYOUT PREVIEW", color = gold)
+        Text("Renderer preview · no fabricated sensor values or active recording.",
+            color = muted)
+        androidx.compose.foundation.layout.Box(
+            Modifier.fillMaxWidth()
+                .height(when (config.layout) {
+                    HudLayout.SPINE -> 270.dp
+                    HudLayout.CARD -> 205.dp
+                    HudLayout.RIBBON -> 130.dp
+                    HudLayout.PILL -> 125.dp
+                })
+                .background(Color(0xFF0B1425), RoundedCornerShape(14.dp))
+                .padding(6.dp)
+        ) {
+            AndroidView(
+                factory = { target ->
+                    HeimdallCanvasView(target, object : HeimdallCanvasView.Actions {
+                        override fun stop() = Unit
+                        override fun cycle() = Unit
+                        override fun lock() = Unit
+                        override fun drag(dxPixels: Int, dyPixels: Int) = Unit
+                        override fun settle() = Unit
+                        override fun drawError() = Unit
+                    }).apply { isClickable = false }
+                },
+                update = { canvas ->
+                    canvas.update(profile = config, id = 0L,
+                        sample = null, history = emptyList())
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        Text("OVERLAY / RECORDER LINK", color = muted)
+        Text(
+            when {
+                !hudEnabled -> "HUD disabled. Recording works without an overlay."
+                !overlayPermission -> "HUD enabled, but Android overlay access is missing."
+                recorderStatus is RecorderStatus.Recording ->
+                    "Enabled for this recording; the service owns the actual HUD window."
+                else -> "Ready. The service shows the HUD during a recording."
+            },
+            color = if (hudEnabled && !overlayPermission) gold else ink
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onToggleHud, modifier = Modifier.weight(1f)) {
+                Text(if (hudEnabled) "DISABLE HUD" else "ENABLE HUD")
+            }
+            if (!overlayPermission) {
+                OutlinedButton(onClick = onRequestOverlayPermission,
+                    modifier = Modifier.weight(1f)) {
+                    Text("GRANT OVERLAY")
+                }
+            }
+        }
         Text("LAYOUT", color = muted)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            HudLayout.entries.forEach { layout ->
+        HudLayout.entries.chunked(2).forEach { layouts ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                layouts.forEach { layout ->
                 FilterChip(
                     modifier = Modifier.weight(1f),
                     selected = config.layout == layout,
@@ -98,6 +166,7 @@ fun HudStudioPanel() {
                         )
                     }
                 )
+                }
             }
         }
 
@@ -161,6 +230,12 @@ fun HudStudioPanel() {
                     )
                 }
             }
+        }
+        OutlinedButton(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = { save(HudProfile()) }
+        ) {
+            Text("RESTORE HUD DEFAULTS", color = muted)
         }
         OutlinedButton(
             modifier = Modifier.fillMaxWidth(),
