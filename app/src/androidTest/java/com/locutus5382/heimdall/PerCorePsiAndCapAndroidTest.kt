@@ -78,7 +78,20 @@ class PerCorePsiAndCapAndroidTest {
             assertTrue(text.contains("psi_cpu_some_avg10"))
             assertTrue(text.contains("psi_memory_full_avg10"))
             assertTrue(text.contains("0=80.0|1=20.0"))
-            assertTrue(text.contains(",8.0,2.0,0.5"))
+            // SQLite REAL columns may render whole numbers as "8" or "8.0".
+            // Verify the actual named columns and numerical readings instead
+            // of relying on a particular string representation.
+            val csvRows = text.trimEnd().lines()
+            val headers = csvRows.first().split(',')
+            val first = csvRows[1].split(',')
+            fun reading(name: String): Double {
+                val position = headers.indexOf(name)
+                assertTrue("Missing CSV column $name", position >= 0)
+                return first[position].toDouble()
+            }
+            assertEquals(8.0, reading("psi_cpu_some_avg10"), 1e-6)
+            assertEquals(2.0, reading("psi_memory_some_avg10"), 1e-6)
+            assertEquals(0.5, reading("psi_memory_full_avg10"), 1e-6)
         } finally {
             preferences.edit().clear().commit()
         }
