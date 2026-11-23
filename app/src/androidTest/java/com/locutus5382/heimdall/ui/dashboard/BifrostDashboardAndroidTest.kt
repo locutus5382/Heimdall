@@ -91,6 +91,45 @@ class BifrostDashboardAndroidTest {
             .performScrollTo().assertExists()
     }
 
+    @Test fun touchscreenCanFilterRealRecorderMetrics() {
+        val sample = DeviceSample(
+            observedAtMs = 1730000000000L,
+            observedElapsedMs = SystemClock.elapsedRealtime(),
+            cpuLoadPercent = 63.0,
+            batteryLevelPercent = 72,
+            gpuClockMHz = 675,
+        )
+        compose.setContent {
+            HeimdallTheme {
+                BifrostDashboard(
+                    status = RecorderStatus.Recording(
+                        sessionId = 41L,
+                        persistedSamples = 7L,
+                        last = sample,
+                        startedElapsedMs = SystemClock.elapsedRealtime() - 5000L
+                    ),
+                    issue = null,
+                    hudEnabled = false,
+                    overlayPermission = false,
+                    onStart = {},
+                    onStop = {},
+                    onToggleHud = {},
+                    onSetup = {},
+                    onHudStudio = {},
+                    onSessions = {},
+                    onDiagnostics = {}
+                )
+            }
+        }
+        compose.onNodeWithText("63%").assertExists()
+        compose.onNodeWithText("CLOCKS / MEMORY").performScrollTo().performClick()
+        compose.onNodeWithText("675 MHz").assertExists()
+        compose.onNodeWithText("63%").assertDoesNotExist()
+        compose.onNodeWithText("ESSENTIALS").performScrollTo().performClick()
+        compose.onNodeWithText("63%").assertExists()
+        compose.onNodeWithText("675 MHz").assertDoesNotExist()
+    }
+
     @Test fun recordingShowsOnlyAvailableRealSensorReadings() {
         val sample = DeviceSample(
             observedAtMs = 1730000000000L,
