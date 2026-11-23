@@ -133,6 +133,31 @@ class BifrostDashboardAndroidTest {
         compose.onNodeWithText("675 MHz").assertDoesNotExist()
     }
 
+    @Test fun reviewFinishedRunHandsExactSessionIdToSessions() {
+        var reviewedId: Long? = null
+        compose.setContent {
+            HeimdallTheme {
+                BifrostDashboard(
+                    status = RecorderStatus.Finished(42L, 6L),
+                    issue = null,
+                    hudEnabled = false,
+                    overlayPermission = false,
+                    onStart = {},
+                    onStop = {},
+                    onToggleHud = {},
+                    onSetup = {},
+                    onHudStudio = {},
+                    onSessions = {},
+                    onDiagnostics = {},
+                    onReviewSession = { reviewedId = it },
+                )
+            }
+        }
+        compose.onNodeWithText("REVIEW SAVED SESSION #42")
+            .performScrollTo().performClick()
+        assertEquals(42L, reviewedId)
+    }
+
     @Test fun recordingShowsOnlyAvailableRealSensorReadings() {
         val sample = DeviceSample(
             observedAtMs = 1730000000000L,
