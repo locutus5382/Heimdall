@@ -10,6 +10,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
@@ -33,7 +35,10 @@ class BifrostDestinationStateAndroidTest {
                 bladeContent = { _, _, _ -> Text("BLADE CONTENT") },
             )
         }
+        compose.onNodeWithText("Dashboard").assertIsSelected()
+        compose.onNodeWithText("Compare").assertIsNotSelected()
         compose.onNodeWithText("Compare").performClick()
+        compose.onNodeWithText("Compare").assertIsSelected()
         compose.onNodeWithText("SELECT RUN A").performClick()
         compose.onNodeWithText("A=41").assertExists()
         compose.onNodeWithText("Dashboard").performClick()
