@@ -211,8 +211,10 @@ internal class CompareScreenViewModel(private val repo: ComparisonDataSource) : 
             mutable.update { it.copy(exportStatus = "Export cancelled.") }
             return
         }
+        // Mark the export busy synchronously so another picker cannot open
+        // before the first writer coroutine gets CPU time.
+        mutable.update { it.copy(writing = true, exportStatus = "Saving ${kind.name}…") }
         viewModelScope.launch {
-            mutable.update { it.copy(writing = true) }
             try {
                 repo.write(uri, pending.payload)
                 mutable.update { it.copy(exportStatus = "${kind.name} report saved locally.") }
