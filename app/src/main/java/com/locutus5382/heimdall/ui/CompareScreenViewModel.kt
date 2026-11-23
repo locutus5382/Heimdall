@@ -129,7 +129,11 @@ internal class CompareScreenViewModel(private val repo: ComparisonDataSource) : 
         listJob = viewModelScope.launch {
             mutable.update { it.copy(loading = true) }
             try {
-                val rows = repo.recent(historyLimit)
+                // Read one extra row (up to the repository's 100-row cap).
+                // An exact full page does NOT prove another page exists.
+                val retrieved = repo.recent((historyLimit + 1).coerceAtMost(100))
+                val hasNext = historyLimit < 100 && retrieved.size > historyLimit
+                val rows = retrieved.take(historyLimit)
                 val ids = rows.map { it.id }.toSet()
                 val linked = linkedBaselineId
                 linkedBaselineId = null
@@ -137,7 +141,7 @@ internal class CompareScreenViewModel(private val repo: ComparisonDataSource) : 
                     val bothValid = (s.a == null || s.a in ids) &&
                         (s.b == null || s.b in ids)
                     s.copy(sessions = rows, loading = false,
-                        hasMoreSessions = rows.size >= historyLimit && historyLimit < 100,
+                        hasMoreSessions = hasNext,
                         issue = if (linked != null && linked !in ids)
                             "Baseline #$linked is not in the 100 most recent saved runs."
                             else null,
