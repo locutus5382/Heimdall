@@ -65,7 +65,8 @@ internal data class CompareUiState(
     val pendingExport: PendingComparisonExport? = null,
     val writing: Boolean = false,
 ) {
-    val canCompare: Boolean get() = a != null && b != null && a != b && !busy
+    val canCompare: Boolean get() = a != null && b != null && a != b && !busy &&
+        sessions.any { it.id == a } && sessions.any { it.id == b }
 }
 
 /** Activity-scoped state survives tab switches and configuration recreation. */
@@ -114,8 +115,15 @@ internal class CompareScreenViewModel(private val repo: ComparisonDataSource) : 
         }
     }
 
-    fun selectA(id: Long) = changeDraft { it.copy(a = id) }
-    fun selectB(id: Long) = changeDraft { it.copy(b = id) }
+    fun selectA(id: Long) {
+        if (id <= 0L || mutable.value.a == id) return
+        changeDraft { it.copy(a = id) }
+    }
+
+    fun selectB(id: Long) {
+        if (id <= 0L || mutable.value.b == id) return
+        changeDraft { it.copy(b = id) }
+    }
     fun cycleA() = changeDraft { s ->
         s.copy(presetA = AbWindowPreset.entries[(s.presetA.ordinal + 1) %
             AbWindowPreset.entries.size])
@@ -143,9 +151,11 @@ internal class CompareScreenViewModel(private val repo: ComparisonDataSource) : 
         generation++
         val ticket = generation
         compareJob?.cancel()
+        // Lock synchronously: a second touch must not start another analysis
+        // while the first coroutine is waiting for bounds/database IO.
+        mutable.update { it.copy(busy = true, issue = null,
+            report = null, selectedWindows = null) }
         compareJob = viewModelScope.launch {
-            mutable.update { it.copy(busy = true, issue = null,
-                report = null, selectedWindows = null) }
             try {
                 val boundsA = repo.bounds(a)
                 val boundsB = repo.bounds(b)
