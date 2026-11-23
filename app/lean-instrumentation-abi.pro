@@ -16,9 +16,9 @@
 -keep class kotlin.** { *; }
 -keep class kotlinx.coroutines.** { *; }
 # AndroidX Test talks to the host Compose runtime and semantics/UI types.
-# Preserve those shared test ABI surfaces, but allow Material3, Foundation,
-# animation and unrelated Compose components to shrink normally. If the
-# optimized instrumentation suite reveals a missing API, add only that API.
+# Preserve those shared test ABI surfaces. Additional ABI keeps below
+# cover the two Foundation subpackages and Material3 directly referenced by
+# independently compiled UI tests; animation and unrelated classes may shrink.
 -keep class androidx.compose.runtime.** { *; }
 -keep class androidx.compose.ui.** { *; }
 
@@ -37,6 +37,16 @@
 # only proguard-rules.pro and retain their existing full R8 shrinking.
 -keep class androidx.compose.foundation.layout.** { *; }
 -keep class androidx.compose.foundation.text.** { *; }
+
+# M1.4g: after Layout/Text were kept, the same independently compiled
+# controller-focus test revealed Material3.Text's compiled static function
+# signature had been shortened/renamed in the optimized target APK:
+# NoSuchMethodError for Text(String, Modifier, ..., Composer, ...).
+# Other UI tests also invoke Material3 Button, Text and TextField directly.
+# Preserve Material3's PUBLIC test-facing binary API in the leanDebug QA target
+# to prevent a new broken symbol every time a test exercises a different
+# component. Production release and releaseQa are not affected.
+-keep class androidx.compose.material3.** { *; }
 
 # Separately compiled Android instrumentation calls Heimdall classes and
 # constructors by their original binary names. In optimized QA only, retain
