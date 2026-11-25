@@ -269,6 +269,16 @@ object DukoIntelligentAnalysis {
         )
     }
 
+    private fun outcomeGrade(
+        evidence: DukoEvidence,
+        outcome: DukoSessionOutcome,
+    ): DukoEvidence = when (outcome) {
+        DukoSessionOutcome.COMPLETED -> evidence
+        DukoSessionOutcome.INTERRUPTED -> if (evidence == DukoEvidence.SUPPORTED)
+            DukoEvidence.QUALIFIED else evidence
+        DukoSessionOutcome.NEEDS_RECOVERY -> DukoEvidence.INSUFFICIENT
+    }
+
     fun analyze(
         minutes: DukoMinuteReport,
         events: DukoEventTimeline?,
@@ -276,8 +286,21 @@ object DukoIntelligentAnalysis {
         thermal: Map<DukoMetric, DukoThermalReport>,
         outcome: DukoSessionOutcome,
     ): DukoInsightReport {
-        val workload = segment(minutes)
-        val suggestions = suggest(minutes, workload)
+        val originalWorkload = segment(minutes)
+        val originalSuggestions = suggest(minutes, originalWorkload)
+        val workload = if (outcome == DukoSessionOutcome.COMPLETED) originalWorkload
+            else originalWorkload.copy(segments = originalWorkload.segments.map {
+                it.copy(evidence = outcomeGrade(it.evidence, outcome),
+                    warnings = (it.warnings + "SESSION_INCOMPLETE").distinct())
+            })
+        val suggestions = if (outcome == DukoSessionOutcome.COMPLETED)
+            originalSuggestions else originalSuggestions.copy(
+                intervals = originalSuggestions.intervals.map {
+                    it.copy(evidence = outcomeGrade(it.evidence, outcome),
+                        warnings = (it.warnings + "SESSION_INCOMPLETE").distinct())
+                },
+                warnings = (originalSuggestions.warnings + "SESSION_INCOMPLETE").distinct(),
+            )
         val findings = ArrayList<DukoQualifiedFinding>()
         val bestSustained = workload.segments
             .filter { it.phase == DukoWorkloadPhase.SUSTAINED_LOAD }
@@ -348,11 +371,7 @@ object DukoIntelligentAnalysis {
         return DukoInsightReport(
             workload, suggestions,
             findings.take(MAX_FINDINGS).map {
-                if (outcome == DukoSessionOutcome.COMPLETED) it else
-                    it.copy(evidence = when (it.evidence) {
-                        DukoEvidence.SUPPORTED -> DukoEvidence.QUALIFIED
-                        else -> it.evidence
-                    })
+                it.copy(evidence = outcomeGrade(it.evidence, outcome))
             }, caveats
         )
     }
