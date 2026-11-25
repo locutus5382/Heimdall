@@ -53,6 +53,7 @@ class DukoM18UiAndroidTest {
         }
         val cap = FrequencyCapTimeline(w, emptyList(),
             listOf(FrequencyCapEvent("policy0", 2_000L, true, 1800L, 2400L)))
+        val minuteReport = minutes.result()
         val events = DukoEventAccumulator(w).result(cap)
         val integrity = DukoSessionIntegrity(DukoSessionOutcome.COMPLETED, emptyMap())
         val energy = DukoEnergy.analyze(w, emptyList<DukoBatteryPoint>())
@@ -61,10 +62,10 @@ class DukoM18UiAndroidTest {
             energy = energy, thermal = emptyMap(),
             capabilitySnapshotAvailable = false,
             confidence = DukoConfidence.assess(integrity, energy),
-            minuteAnalysis = minutes.result(),
+            minuteAnalysis = minuteReport,
             cpuPolicyResidency = residency.result(),
             events = events,
-            insights = DukoIntelligentAnalysis.analyze(minutes.result(),
+            insights = DukoIntelligentAnalysis.analyze(minuteReport,
                 events, cap, emptyMap(), DukoSessionOutcome.COMPLETED),
         )
     }
