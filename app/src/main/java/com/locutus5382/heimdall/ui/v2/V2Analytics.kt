@@ -54,9 +54,10 @@ internal fun V2AnalyticsScreen(
     var section by rememberSaveable { mutableStateOf(V2AnalysisSection.OVERVIEW.name) }
     LaunchedEffect(refreshKey) { model.refresh(refreshKey) }
     val newest = state.history.firstOrNull()?.id
-    LaunchedEffect(newest) {
-        if (newest != null && model.ui.value.expandedId == null)
-            model.focusSession(newest)
+    LaunchedEffect(newest, state.loadingHistory, state.expandedId) {
+        // Do not override an explicit RUNS selection while its archive refresh
+        // is still underway. The ViewModel checks pending focus ownership.
+        if (newest != null) model.focusNewestIfNone()
     }
     val selectedId = state.expandedId
     val selected = state.history.firstOrNull { it.id == selectedId }
@@ -95,6 +96,9 @@ internal fun V2AnalyticsScreen(
                 formatV2Time(selected.endedAtMs - selected.startedAtMs) +
                 "    " + selected.samples + " samples    " + selected.reason,
                 color = V2Palette.amber, fontSize = 12.sp)
+        }
+        if (selectedId != null && state.detail?.duko != null) {
+            V2AnalysisRange(selectedId, state.detail!!.duko!!, state, model)
         }
         val ov = state.detail?.overview
         if (ov != null) {
