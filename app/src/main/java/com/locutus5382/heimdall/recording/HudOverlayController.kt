@@ -55,6 +55,9 @@ internal class HudOverlayController(private val app: Context) :
     private var stopSent = false
     private var lastFailure = 0L
     private var disposed = false
+    // Retain a failing WindowManager owner until detachment is observed;
+    // otherwise the next status tick could attach a duplicate Canvas/chip.
+    private var releasePending = false
     private val density get() = app.resources.displayMetrics.density
     private fun dp(value: Int) = (value * density + .5f).toInt()
     private fun toDp(value: Int) = (value / density + .5f).toInt()
@@ -66,6 +69,10 @@ internal class HudOverlayController(private val app: Context) :
     fun render(status: RecorderStatus) {
         if (disposed) return
         latest = status
+        if (releasePending) {
+            hideWindow()
+            if (releasePending) return // no second overlay while one may survive
+        }
         val recording = status as? RecorderStatus.Recording
         if (recording == null) {
             dismiss()
@@ -105,7 +112,7 @@ internal class HudOverlayController(private val app: Context) :
     }
 
     private fun create() {
-        if (view != null || disposed) return
+        if (view != null || unlock != null || releasePending || disposed) return
         val canvas = HeimdallCanvasView(app,
             object : HeimdallCanvasView.Actions {
                 override fun stop() = requestStop()
@@ -180,11 +187,12 @@ internal class HudOverlayController(private val app: Context) :
         val config = store.read()
         val v = view ?: return
         val now = SystemClock.elapsedRealtime()
+        val safety = safetyEngine.visibleStateAt(now)
         v.update(config, recording.sessionId,
             recording.last, history.snapshot(), saving = stopSent,
             elapsedMs = now - sessionObservedStartMs,
-            thermal = safetyEngine.visibleStateAt(now).batteryIndicator,
-            alert = safetyEngine.visibleStateAt(now).primary)
+            thermal = safety.batteryIndicator,
+            alert = safety.primary)
         val originalX = params?.x
         val originalY = params?.y
         alignDock(config)
@@ -248,6 +256,7 @@ internal class HudOverlayController(private val app: Context) :
 
     /** Called when the device changes orientation or display geometry. */
     fun realign() {
+        if (releasePending) return
         val current = view ?: return
         current.requestLayout()
         current.post {
@@ -352,7 +361,7 @@ internal class HudOverlayController(private val app: Context) :
 
     private fun showUnlock() {
         // The unlock chip is meaningful only while its Canvas owner exists.
-        if (view == null || params == null) return
+        if (view == null || params == null || releasePending) return
         if (unlock == null) {
             val chip = TextView(app).apply {
                 text = "UNLOCK"
@@ -435,19 +444,37 @@ internal class HudOverlayController(private val app: Context) :
 
     private fun removeUnlock() {
         val current = unlock ?: return
-        unlock = null
-        unlockParams = null
-        runCatching { wm.removeViewImmediate(current) }
-            .onFailure { Log.w("HeimdallHUD", "Unlock cleanup", it) }
+        val detached = releaseOverlayOrRetain(
+            remove = { wm.removeViewImmediate(current) },
+            attached = { current.isAttachedToWindow },
+            conceal = { current.visibility = View.GONE },
+            report = { Log.w("HeimdallHUD", "Unlock cleanup", it) },
+        )
+        if (detached) {
+            unlock = null
+            unlockParams = null
+        } else {
+            releasePending = true
+        }
     }
 
     private fun hideWindow() {
         removeUnlock()
-        val current = view ?: return
-        view = null
-        params = null
-        runCatching { wm.removeViewImmediate(current) }
-            .onFailure { Log.w("HeimdallHUD", "Canvas cleanup", it) }
+        val current = view
+        if (current != null) {
+            val detached = releaseOverlayOrRetain(
+                remove = { wm.removeViewImmediate(current) },
+                attached = { current.isAttachedToWindow },
+                conceal = { current.visibility = View.GONE },
+                report = { Log.w("HeimdallHUD", "Canvas cleanup", it) },
+            )
+            if (detached) {
+                view = null
+                params = null
+            }
+        }
+        // Suppress creation until BOTH windows are known detached.
+        releasePending = view != null || unlock != null
     }
 
     fun dismiss() {
