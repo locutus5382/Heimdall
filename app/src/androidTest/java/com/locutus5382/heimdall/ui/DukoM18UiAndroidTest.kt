@@ -18,6 +18,7 @@ import com.locutus5382.heimdall.engine.duko.DukoEventAccumulator
 import com.locutus5382.heimdall.engine.duko.DukoEventSample
 import com.locutus5382.heimdall.engine.duko.DukoMetric
 import com.locutus5382.heimdall.engine.duko.DukoMinuteAccumulator
+import com.locutus5382.heimdall.engine.duko.DukoIntelligentAnalysis
 import com.locutus5382.heimdall.engine.duko.DukoObservation
 import com.locutus5382.heimdall.engine.duko.DukoSessionIntegrity
 import com.locutus5382.heimdall.engine.duko.DukoSessionOutcome
@@ -63,6 +64,8 @@ class DukoM18UiAndroidTest {
             minuteAnalysis = minutes.result(),
             cpuPolicyResidency = residency.result(),
             events = events,
+            insights = DukoIntelligentAnalysis.analyze(minutes.result(),
+                events, cap, emptyMap(), DukoSessionOutcome.COMPLETED),
         )
     }
 
@@ -92,5 +95,10 @@ class DukoM18UiAndroidTest {
         compose.onNodeWithText("CAPS").performScrollTo().performClick()
         compose.onNodeWithText("POLICY CAP OBSERVED", substring = true)
             .performScrollTo().assertExists()
+        compose.onNodeWithText("INSIGHTS").performScrollTo().performClick()
+        compose.onNodeWithText("A / WORKLOAD PHASES").performScrollTo().assertExists()
+        compose.onNodeWithText("E / SUGGESTED COMPARISON WINDOWS")
+            .performScrollTo().assertExists()
+        compose.onNodeWithText("F / DUKO FINDINGS").performScrollTo().assertExists()
     }
 }
