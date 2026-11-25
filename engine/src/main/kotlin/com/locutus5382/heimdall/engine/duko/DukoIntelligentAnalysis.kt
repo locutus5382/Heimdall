@@ -232,7 +232,7 @@ object DukoIntelligentAnalysis {
                     stablePair(relevant[end - 1], relevant[end])) end++
                 if (end - index >= 2) {
                     val chosen = relevant.subList(index, end)
-                    val usableSignals = chosen.flatMap { listOf(
+                    val usableSignals = chosen.flatMap { listOfNotNull(
                         it.metrics[DukoMetric.CPU_LOAD],
                         it.metrics[DukoMetric.GPU_LOAD],
                     ).filter(::usable) }
