@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -24,12 +25,19 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.locutus5382.heimdall.HeimdallApplication
 import com.locutus5382.heimdall.engine.RecorderStatus
+import com.locutus5382.heimdall.recording.DukoSessionMarkerStore
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 import com.locutus5382.heimdall.ui.dashboard.BifrostDashboard
 import com.locutus5382.heimdall.ui.dashboard.DashboardViewModel
 import com.locutus5382.heimdall.ui.navigation.BifrostBlade
@@ -66,6 +74,9 @@ class MainActivity : ComponentActivity() {
         dashboardModel.inspect()
         setContent {
             val state by dashboardModel.uiState.collectAsStateWithLifecycle()
+            val markerScope = rememberCoroutineScope()
+            val markerStore = remember { DukoSessionMarkerStore(applicationContext) }
+            var markerNotice by remember { mutableStateOf<String?>(null) }
             val notificationPermission = rememberLauncherForActivityResult(
                 ActivityResultContracts.RequestPermission()
             ) { granted ->
@@ -116,6 +127,22 @@ class MainActivity : ComponentActivity() {
                                 sessionsModel.focusSession(id)
                                 openTab(BifrostTab.SESSIONS)
                             },
+                            onMarkRecording = { sessionId ->
+                                // Capture tap time before async SQLite work begins.
+                                val tapElapsedMs = SystemClock.elapsedRealtime()
+                                markerScope.launch {
+                                    try {
+                                        markerStore.add(sessionId, tapElapsedMs,
+                                            "Live marker", live = true)
+                                        markerNotice = "Marker saved for session #" + sessionId
+                                    } catch (cancel: CancellationException) { throw cancel }
+                                    catch (error: Exception) {
+                                        markerNotice = "Could not save marker: " +
+                                            error.javaClass.simpleName
+                                    }
+                                }
+                            },
+                            markerNotice = markerNotice,
                         )
                     },
                     sessions = { openTab ->
