@@ -138,7 +138,7 @@ class DukoM18UiAndroidTest {
             .performScrollTo().assertExists()
         compose.onNodeWithText("G / LAYERED TELEMETRY")
             .performScrollTo().assertExists()
-        compose.onNodeWithText("CPU LOAD", substring = true)
+        compose.onNodeWithText("● CPU LOAD:", substring = true)
             .performScrollTo().assertExists()
         compose.onNodeWithText("CLOCKS").performScrollTo().performClick()
         compose.onNodeWithText("This sensor group has no recorded evidence.")
