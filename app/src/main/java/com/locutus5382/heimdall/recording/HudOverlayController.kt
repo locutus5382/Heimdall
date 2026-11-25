@@ -163,9 +163,12 @@ internal class HudOverlayController(private val app: Context) :
             // addView may have succeeded before a later setup step failed.
             // Roll back the actual attached window before clearing ownership.
             lastFailure = SystemClock.elapsedRealtime()
-            runCatching {
-                if (canvas.isAttachedToWindow) wm.removeViewImmediate(canvas)
-            }.onFailure { Log.w("HeimdallHUD", "Canvas rollback failed", it) }
+            rollbackHudWindow(
+                // A just-added view may not have received onAttach yet.
+                // Still attempt to remove the WindowManager-owned token.
+                remove = { wm.removeViewImmediate(canvas) },
+                report = { Log.w("HeimdallHUD", "Canvas rollback failed", it) },
+            )
             view = null
             params = null
             Log.w("HeimdallHUD", "Canvas window rejected; recording continues", e)
@@ -384,9 +387,10 @@ internal class HudOverlayController(private val app: Context) :
                 unlockParams = p
             } catch (e: Exception) {
                 // addView can attach before throwing; do not leave an orphan chip.
-                runCatching {
-                    if (chip.isAttachedToWindow) wm.removeViewImmediate(chip)
-                }.onFailure { Log.w("HeimdallHUD", "Unlock rollback failed", it) }
+                rollbackHudWindow(
+                    remove = { wm.removeViewImmediate(chip) },
+                    report = { Log.w("HeimdallHUD", "Unlock rollback failed", it) },
+                )
                 unlock = null
                 unlockParams = null
                 Log.w("HeimdallHUD", "Unlock chip unavailable; release lock", e)
