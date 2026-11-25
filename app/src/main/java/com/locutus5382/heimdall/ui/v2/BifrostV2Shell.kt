@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -155,7 +156,10 @@ private fun V2DestinationChip(
             .border(1.dp, if (selected) V2Palette.border else Color.Transparent,
                 RoundedCornerShape(11.dp))
             .clickable(role = Role.Tab, onClick = onClick)
-            .semantics { this.selected = selected }
+            .semantics {
+                this.selected = selected
+                contentDescription = "Navigate to " + tab.label
+            }
             .padding(horizontal = if (compact) 7.dp else 3.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center
     ) {
