@@ -313,3 +313,100 @@ No material analytic calculation lives inside Compose. Rendering only controls u
 **Later, not blockers:** median-absolute-deviation/outlier multi-run repeatability, device behavior fingerprint, persistent alert on/off events, single-session PDF, broader device validation and automatic OEM setting detection where legitimately possible.
 
 **Definition of success:** Within one touch of a saved run, show useful DUKO charts and KPIs. Within two further taps, reveal any core, policy, battery/thermal, pressure, minute, event or insight view. The in-game HUD is small, legible and safe. All source data/quality limits remain honest. The preserved recorder continues regardless of which UI component fails.
+
+
+## 15. Proposed UI package boundaries (implementation blueprint)
+
+Only these UI/presentation packages are new; engine and persistence packages stay authoritative.
+
+~~~text
+app/.../ui/v2/
+  app/
+    BifrostHost.kt             # activity-to-destination routing and safe-area frame
+    SelectionCoordinator.kt   # selected run ID and selected range; SavedStateHandle
+    ScreenContract.kt         # immutable presentation state and loading/empty/error states
+  design/
+    Tokens.kt                 # palette, spacing, radius, typography, motion
+    Components.kt             # value card, status chip, caution, row, segmented control
+    EvidenceChip.kt           # SUPPORTED/QUALIFIED/INSUFFICIENT / accessible explanation
+  live/
+    LiveRoute.kt              # RecorderStatusHub + DashboardViewModel adapter
+    RecorderCard.kt
+    LiveTelemetry.kt
+    LastRunStrip.kt
+  analysis/
+    AnalyzeRoute.kt           # DukoSessionAnalyzer result → one selected window
+    AnalysisHeader.kt
+    WindowPicker.kt
+    DukoChartSurface.kt       # real gaps, shared cursor, extrema/events
+    DukoMetricInspector.kt
+    OverviewTab.kt
+    CoresTab.kt
+    ClocksCapsTab.kt
+    ThermalEnergyTab.kt
+    PressureMemoryTab.kt
+    MinutesPhasesTab.kt
+    EventsMarkersTab.kt
+    InsightsTab.kt
+  runs/
+    RunsRoute.kt
+    RunRow.kt
+    RunMetadataSheet.kt
+    SavedCsvExport.kt
+  compare/
+    CompareRoute.kt
+    AbSelector.kt
+    MultiSelector.kt
+    ComparisonMetricChart.kt
+    DukoReportActions.kt
+  tools/
+    ToolsRoute.kt
+    TestProfileEditor.kt
+    DeviceSources.kt
+    DiagnosticsRoute.kt
+  hud/
+    HudCoordinator.kt         # exactly one WindowManager ownership boundary
+    HudRenderModel.kt         # immutable snapshot / formatting / warning token
+    HudPrimitives.kt          # reused by Canvas overlay and Studio preview
+    MicroPill.kt
+    Ribbon.kt
+    CompactCard.kt
+    HudStudioRoute.kt
+    HudUnlockChip.kt
+~~~
+
+Presentation adapters should expose immutable, testable UI models such as:
+
+- MetricPresentation = metricId, nullableValue, label, formattedUnit, validity, origin, coverage, evidence, minAt, maxAt and explanatoryWarning. Null is never replaced by zero in the adapter.
+- ChartPresentation = domainWindow, source timeline points, continuity flags, displayed-unit group, extrema annotations, event markers and selected crosshair. Rendering may simplify points while keeping the original domain analysis intact.
+- SessionPresentation = original ID, outcome, persisted rows, elapsed bounds, declared context and integrity status.
+- HudPresentation = session ID, status, elapsed time, at-most-N selected verified metrics and single highest-priority warning. It cannot issue recorder commands itself; it forwards intent to the Service dispatcher.
+
+No screen should directly access database cursors, Android sensor interfaces or DUKO accumulator classes. Existing ViewModel/repository classes remain as transitional adapters until their public behavior is covered by regressions and V2 routes can replace legacy presentations.
+
+## 16. First launch, state recovery and critical failure UX
+
+**First-ever launch:** show a compact one-time two-page explanation, not a marketing carousel: (1) Offline/read-only monitoring, how samples/DUKO analysis work, optional "Configure test profile"; (2) Recorder and HUD permissions are independent, optional overlay permission is requested only when HUD is enabled. Notification permission is requested at the appropriate Android operation, not silently on launch. The user may skip setup and record with UNKNOWN test conditions.
+
+**Return with saved runs:** Live displays the most recent completed session with a single ANALYZE action. Do not auto-start or auto-enable HUD. Persist last selected run ID across Activity recreation when the source row still exists.
+
+**Interrupted/recovered session:** red/amber NEEDS ATTENTION panel shows the original ID and factual recovery status. Existing source rows remain viewable/exportable. NEVER silently create a replacement session or erase original data.
+
+**Unsupported sensor:** display em dash plus a source-status explanation and suggested device diagnostic action. Do not declare a generic failure or treat the missing stream as an observed zero.
+
+**Report errors:** show a short actionable failure and preserve the frozen report, allowing a new SAF picker attempt. No partial file named as successful report.
+
+**HUD failed attachment/removal:** record failure in local diagnostics, conceal any stale window, retain ownership until confirmed detached and always preserve ability to STOP via Quick Settings/notification/app.
+
+**Long recordings or absent data:** show analysis window length, global display limits, truncated events/minutes count and suggested narrower window. Never silently omit portions of an export/report.
+
+**Low battery during gameplay:** show measured battery level and optional caution but do not claim underclock causality or override OEM settings.
+
+The product must maintain at least four complete user journeys with screenshot and instrumentation acceptance:
+
+A. First launch → set test context → Start → launch game → HUD → Stop from QS → open saved run → DUKO → annotate → export CSV.
+B. Choose driver A and mode/fan → record → change settings externally → capture driver B in a second user-tagged run → compare source-qualified A/B and export PDF.
+C. Select 3–6 runs → promote baseline → choose relative window → inspect per-metric comparable counts and warnings → export multi-run PNG.
+D. No GPU/PSI sensor permission → record normally → inspect missing-data charts, DUKO quality grades and a failed/empty capability probe without crashes or fabricated zeroes.
+
+The final test must explicitly verify that the UI and the HUD are genuinely coherent with the supplied dark reference images and the previously useful CoreMetrics information density.
