@@ -13,8 +13,8 @@ android {
         applicationId = "com.locutus5382.heimdall"
         minSdk = 31
         targetSdk = 36
-        versionCode = 15
-        versionName = "0.8.6-odin-pretest-stability-alpha"
+        versionCode = 16
+        versionName = "0.8.7-odin-test-candidate"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Only the minified instrumentation APK references JDK annotation APIs.
         testProguardFiles("test-proguard-rules.pro")

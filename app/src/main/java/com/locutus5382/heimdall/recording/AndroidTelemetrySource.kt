@@ -76,11 +76,13 @@ internal class AndroidTelemetrySource(
             memoryInfo.availMem / (1024L * 1024L)
         }.getOrNull()
         val activeCatalog = catalog
-        val policyClocks = activeCatalog.clocksMHz()
-        val policyLimits = activeCatalog.limitsMHz()
-        val hardwareMax = activeCatalog.siliconLimitsMHz()
-        val thermal = runCatching { power.currentThermalStatus }.getOrNull()
         val now = SystemClock.elapsedRealtime()
+        val policyClocks = activeCatalog.clocksMHz()
+        // Dynamic policy caps must remain visible on EVERY sample, including
+        // ClusterTune and thermal policy changes. Silicon maxima are stable.
+        val policyLimits = activeCatalog.limitsMHz()
+        val hardwareMax = activeCatalog.siliconLimitsCachedMHz(now)
+        val thermal = runCatching { power.currentThermalStatus }.getOrNull()
         val headroomQueryAt = if (thermalGate.shouldQuery(now)) now else null
         val headroom = headroomQueryAt?.let {
             runCatching { power.getThermalHeadroom(0).toDouble() }

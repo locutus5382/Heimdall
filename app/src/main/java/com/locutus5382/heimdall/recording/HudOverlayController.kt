@@ -55,6 +55,9 @@ internal class HudOverlayController(private val app: Context) :
     private var stopSent = false
     private var lastFailure = 0L
     private var disposed = false
+    // Retain a failing WindowManager owner until detachment is observed;
+    // otherwise the next status tick could attach a duplicate Canvas/chip.
+    private var releasePending = false
     private val density get() = app.resources.displayMetrics.density
     private fun dp(value: Int) = (value * density + .5f).toInt()
     private fun toDp(value: Int) = (value / density + .5f).toInt()
@@ -66,6 +69,10 @@ internal class HudOverlayController(private val app: Context) :
     fun render(status: RecorderStatus) {
         if (disposed) return
         latest = status
+        if (releasePending) {
+            hideWindow()
+            if (releasePending) return // no second overlay while one may survive
+        }
         val recording = status as? RecorderStatus.Recording
         if (recording == null) {
             dismiss()
@@ -105,7 +112,7 @@ internal class HudOverlayController(private val app: Context) :
     }
 
     private fun create() {
-        if (view != null || disposed) return
+        if (view != null || unlock != null || releasePending || disposed) return
         val canvas = HeimdallCanvasView(app,
             object : HeimdallCanvasView.Actions {
                 override fun stop() = requestStop()
@@ -163,14 +170,23 @@ internal class HudOverlayController(private val app: Context) :
             // addView may have succeeded before a later setup step failed.
             // Roll back the actual attached window before clearing ownership.
             lastFailure = SystemClock.elapsedRealtime()
-            rollbackHudWindow(
+            val detached = releaseOverlayOrRetain(
                 // A just-added view may not have received onAttach yet.
-                // Still attempt to remove the WindowManager-owned token.
                 remove = { wm.removeViewImmediate(canvas) },
+                attached = { canvas.isAttachedToWindow },
+                conceal = { canvas.visibility = View.GONE },
                 report = { Log.w("HeimdallHUD", "Canvas rollback failed", it) },
             )
-            view = null
-            params = null
+            if (detached) {
+                view = null
+                params = null
+            } else {
+                // The window may still be attached; keep its owner and retry
+                // later instead of building a second Canvas over the game.
+                view = canvas
+                params = p
+                releasePending = true
+            }
             Log.w("HeimdallHUD", "Canvas window rejected; recording continues", e)
         }
     }
@@ -180,19 +196,21 @@ internal class HudOverlayController(private val app: Context) :
         val config = store.read()
         val v = view ?: return
         val now = SystemClock.elapsedRealtime()
+        val safety = safetyEngine.visibleStateAt(now)
         v.update(config, recording.sessionId,
             recording.last, history.snapshot(), saving = stopSent,
             elapsedMs = now - sessionObservedStartMs,
-            thermal = safetyEngine.visibleStateAt(now).batteryIndicator,
-            alert = safetyEngine.visibleStateAt(now).primary)
+            thermal = safety.batteryIndicator,
+            alert = safety.primary)
         val originalX = params?.x
         val originalY = params?.y
         alignDock(config)
         if (originalX != params?.x || originalY != params?.y) {
             updateWindow()
+            if (releasePending) return
             positionUnlock()
         }
-        syncLock(config)
+        if (!releasePending) syncLock(config)
     }
 
     private fun requestStop() {
@@ -248,6 +266,7 @@ internal class HudOverlayController(private val app: Context) :
 
     /** Called when the device changes orientation or display geometry. */
     fun realign() {
+        if (releasePending) return
         val current = view ?: return
         current.requestLayout()
         current.post {
@@ -352,7 +371,7 @@ internal class HudOverlayController(private val app: Context) :
 
     private fun showUnlock() {
         // The unlock chip is meaningful only while its Canvas owner exists.
-        if (view == null || params == null) return
+        if (view == null || params == null || releasePending) return
         if (unlock == null) {
             val chip = TextView(app).apply {
                 text = "UNLOCK"
@@ -387,12 +406,20 @@ internal class HudOverlayController(private val app: Context) :
                 unlockParams = p
             } catch (e: Exception) {
                 // addView can attach before throwing; do not leave an orphan chip.
-                rollbackHudWindow(
+                val detached = releaseOverlayOrRetain(
                     remove = { wm.removeViewImmediate(chip) },
+                    attached = { chip.isAttachedToWindow },
+                    conceal = { chip.visibility = View.GONE },
                     report = { Log.w("HeimdallHUD", "Unlock rollback failed", it) },
                 )
-                unlock = null
-                unlockParams = null
+                if (detached) {
+                    unlock = null
+                    unlockParams = null
+                } else {
+                    unlock = chip
+                    unlockParams = p
+                    releasePending = true
+                }
                 Log.w("HeimdallHUD", "Unlock chip unavailable; release lock", e)
                 store.saveLock(false)
                 return
@@ -402,6 +429,9 @@ internal class HudOverlayController(private val app: Context) :
     }
 
     private fun positionUnlock() {
+        // A WindowManager cleanup is in progress: do not update or recreate
+        // any window whose original owner may still be attached.
+        if (releasePending) return
         val parent = params ?: return
         val p = unlockParams ?: return
         val chip = unlock ?: return
@@ -435,19 +465,37 @@ internal class HudOverlayController(private val app: Context) :
 
     private fun removeUnlock() {
         val current = unlock ?: return
-        unlock = null
-        unlockParams = null
-        runCatching { wm.removeViewImmediate(current) }
-            .onFailure { Log.w("HeimdallHUD", "Unlock cleanup", it) }
+        val detached = releaseOverlayOrRetain(
+            remove = { wm.removeViewImmediate(current) },
+            attached = { current.isAttachedToWindow },
+            conceal = { current.visibility = View.GONE },
+            report = { Log.w("HeimdallHUD", "Unlock cleanup", it) },
+        )
+        if (detached) {
+            unlock = null
+            unlockParams = null
+        } else {
+            releasePending = true
+        }
     }
 
     private fun hideWindow() {
         removeUnlock()
-        val current = view ?: return
-        view = null
-        params = null
-        runCatching { wm.removeViewImmediate(current) }
-            .onFailure { Log.w("HeimdallHUD", "Canvas cleanup", it) }
+        val current = view
+        if (current != null) {
+            val detached = releaseOverlayOrRetain(
+                remove = { wm.removeViewImmediate(current) },
+                attached = { current.isAttachedToWindow },
+                conceal = { current.visibility = View.GONE },
+                report = { Log.w("HeimdallHUD", "Canvas cleanup", it) },
+            )
+            if (detached) {
+                view = null
+                params = null
+            }
+        }
+        // Suppress creation until BOTH windows are known detached.
+        releasePending = view != null || unlock != null
     }
 
     fun dismiss() {

@@ -77,7 +77,7 @@ internal class HeimdallCanvasView(
     private var state = HudRenderState.recording(0L, 0L, null, profile, emptyList())
     private var geometry: HudGeometry? = null
     private var menuExpanded = false
-    private var drawFailures = 0
+    private val drawFailureGate = HudDrawFailureGate()
     private val slop = ViewConfiguration.get(context).scaledTouchSlop
     private var touchAction = 0
     private var downRawX = 0f
@@ -364,11 +364,12 @@ internal class HeimdallCanvasView(
             if (profile.layout == HudLayout.CARD) sparkline(canvas, g)
             safetyBanner(canvas, g)
             controls(canvas, g)
-            drawFailures = 0
+            drawFailureGate.success()
         } catch (error: RuntimeException) {
             // Contain recoverable renderer errors; the recorder continues.
-            drawFailures++
-            if (drawFailures >= 3) post { actions.drawError() }
+            // A permanent Canvas failure can receive repeated onDraw calls:
+            // never enqueue an unbounded number of disable requests.
+            if (drawFailureGate.failed()) post { actions.drawError() }
         } finally {
             canvas.restoreToCount(save)
         }
