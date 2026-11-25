@@ -198,30 +198,16 @@ class RuntimeDiagnostics(context: Context) {
                     // Phase 1: verify the newest completed session against
                     // its original sample rows, without changing source data.
                     // This is a single indexed count performed ON DEMAND.
-                    database.rawQuery(
-                        """SELECT id, sample_count FROM sessions
-                           WHERE status='COMPLETED'
-                           ORDER BY id DESC LIMIT 1""", null
-                    ).use { latest ->
-                        if (latest.moveToFirst()) {
-                            val id = latest.getLong(0)
-                            val expected = latest.getLong(1)
-                            val actual = database.rawQuery(
-                                "SELECT COUNT(*) FROM samples WHERE session_id=?",
-                                arrayOf(id.toString())
-                            ).use { samples ->
-                                if (samples.moveToFirst()) samples.getLong(0)
-                                else -1L
-                            }
-                            line("Latest saved session inspected", id)
-                            line("Latest saved declared samples", expected)
-                            line("Latest saved source rows", actual)
-                            line("Latest saved row integrity",
-                                if (actual == expected) "MATCH"
-                                else "MISMATCH — preserve data, report before RC1")
-                        } else {
-                            line("Latest saved row integrity", "no completed session yet")
-                        }
+                    val latest = latestSavedSessionAudit(database)
+                    if (latest == null) {
+                        line("Latest saved row integrity", "no completed session yet")
+                    } else {
+                        line("Latest saved session inspected", latest.sessionId)
+                        line("Latest saved declared samples", latest.declaredRows)
+                        line("Latest saved source rows", latest.actualRows)
+                        line("Latest saved row integrity",
+                            if (latest.consistent) "MATCH"
+                            else "MISMATCH — preserve data, report before RC1")
                     }
                     // No full-table sample scan; this probe must stay cheap.
                     line("SQLite source", "read only")
