@@ -1,14 +1,18 @@
 package com.locutus5382.heimdall.ui.v2
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -21,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -50,33 +55,46 @@ internal fun formatV2Time(ms: Long): String {
 @Composable
 internal fun V2PageTitle(kicker: String, heading: String, detail: String) {
     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text(kicker, color = V2Palette.cyan, fontWeight = FontWeight.Bold,
-            letterSpacing = 1.2.sp, fontSize = 10.sp)
-        Text(heading, color = V2Palette.text, fontWeight = FontWeight.Bold,
-            fontSize = 26.sp)
-        Text(detail, color = V2Palette.muted, fontSize = 12.sp)
+        Text(kicker, color = V2Palette.cyan, fontWeight = FontWeight.SemiBold,
+            letterSpacing = 1.35.sp, fontSize = 10.sp)
+        Text(heading, color = V2Palette.text, fontWeight = FontWeight.SemiBold,
+            fontSize = 25.sp)
+        Text(detail, color = V2Palette.muted, fontSize = 11.sp)
     }
 }
 
 @Composable
 internal fun V2Surface(content: @Composable () -> Unit) {
     Column(
-        Modifier.fillMaxWidth().background(V2Palette.panel, RoundedCornerShape(12.dp))
-            .padding(15.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        Modifier.fillMaxWidth()
+            .background(V2Palette.quietGlow, RoundedCornerShape(16.dp))
+            .border(1.dp, V2Palette.divider, RoundedCornerShape(16.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp)
     ) { content() }
 }
 
 @Composable
-internal fun V2Value(label: String, reading: String, caption: String = "") {
-    Column(Modifier.fillMaxWidth().background(V2Palette.raised, RoundedCornerShape(9.dp))
-        .padding(horizontal = 12.dp, vertical = 11.dp),
-        verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        Text(label, color = V2Palette.muted, fontSize = 10.sp, maxLines = 1)
-        Text(reading, color = V2Palette.text, fontSize = 20.sp,
+internal fun V2Value(
+    label: String, reading: String, caption: String = "",
+    accent: Color = V2Palette.cyan,
+) {
+    Column(Modifier.fillMaxWidth()
+        .background(V2Palette.panel, RoundedCornerShape(13.dp))
+        .border(1.dp, V2Palette.divider, RoundedCornerShape(13.dp))
+        .padding(horizontal = 13.dp, vertical = 11.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            Box(Modifier.width(4.dp).height(4.dp)
+                .background(accent, RoundedCornerShape(3.dp)))
+            Text(label.uppercase(), color = V2Palette.muted,
+                fontSize = 10.sp, maxLines = 1)
+        }
+        Text(reading, color = V2Palette.text, fontSize = 23.sp,
             fontWeight = FontWeight.SemiBold, maxLines = 1,
             overflow = TextOverflow.Ellipsis)
-        if (caption.isNotEmpty()) Text(caption, color = V2Palette.muted,
+        if (caption.isNotEmpty()) Text(caption, color = V2Palette.subtle,
             fontSize = 10.sp, maxLines = 1)
     }
 }
