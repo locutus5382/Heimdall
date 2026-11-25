@@ -254,6 +254,7 @@ class NativeRecorderEngine(
                                         RecorderStatus.NeedsAttention(id, "SAMPLE_IO_FAILED")
                                     else current
                                 }
+                                runCatching { overhead.end(id) }
                                 break
                             }
                             delay(nextRetryDelayMs)
@@ -316,6 +317,7 @@ class NativeRecorderEngine(
         samplerJob = null
         if (!durable) {
             _status.value = RecorderStatus.NeedsAttention(id, "STOP_NOT_DURABLE")
+            runCatching { overhead.end(id) }
             return@withLock false
         }
         _status.value = RecorderStatus.Saving(id)
@@ -326,6 +328,7 @@ class NativeRecorderEngine(
         }
         if (!finished) {
             _status.value = RecorderStatus.NeedsAttention(id, "FINALIZATION_FAILED")
+            runCatching { overhead.end(id) }
             return@withLock false
         }
         val total = try { persistence.sampleCount(id) } catch (_: Exception) { 0L }
