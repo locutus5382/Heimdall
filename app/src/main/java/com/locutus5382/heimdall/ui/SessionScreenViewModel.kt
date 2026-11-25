@@ -289,8 +289,9 @@ internal class SessionScreenViewModel(private val repo: SessionScreenDataSource)
             try {
                 val count = if (snapshotWindow == null) repo.exportCsv(id, destination)
                     else repo.exportCsvWindow(id, destination, snapshotWindow)
-                mutable.update { it.copy(notice = "Session #$id exported: $count original samples" +
-                    if (snapshotWindow == null) "." else " from selected range.") }
+                mutable.update { it.copy(notice = if (snapshotWindow == null)
+                    "Session #$id exported: $count samples." else
+                    "Session #$id selected range exported: $count original samples.") }
             } catch (cancel: CancellationException) { throw cancel }
             catch (e: Exception) {
                 mutable.update { it.copy(notice = "CSV export failed: ${e.javaClass.simpleName}") }
