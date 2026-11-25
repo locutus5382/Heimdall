@@ -15,7 +15,7 @@ import androidx.compose.runtime.getValue
 import com.locutus5382.heimdall.HeimdallApplication
 import com.locutus5382.heimdall.engine.RecorderStatus
 import com.locutus5382.heimdall.ui.dashboard.DashboardViewModel
-import com.locutus5382.heimdall.ui.theme.HeimdallTheme
+import com.locutus5382.heimdall.ui.v2.BifrostV2Theme
 import com.locutus5382.heimdall.ui.v2.BifrostV2Destination
 import com.locutus5382.heimdall.ui.v2.BifrostV2Shell
 import com.locutus5382.heimdall.ui.v2.V2LiveScreen
@@ -73,7 +73,7 @@ class MainActivity : ComponentActivity() {
             val stopRecording: () -> Unit = { dashboard.stop() }
             val finishedId = (current.status as? RecorderStatus.Finished)?.sessionId ?: 0L
 
-            HeimdallTheme {
+            BifrostV2Theme {
                 BifrostV2Shell { page, navigate ->
                     when (page) {
                         BifrostV2Destination.LIVE -> V2LiveScreen(
