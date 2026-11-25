@@ -55,7 +55,10 @@ class HeimdallRecorderService : Service() {
                 })
         engine = NativeRecorderEngine(
             AndroidTelemetrySource(applicationContext),
-            LocalRecordingStore(applicationContext), engineScope)
+            LocalRecordingStore(applicationContext), engineScope,
+            overhead = RecorderOverheadHub.monitor,
+            processCpuNowMs = { android.os.Process.getElapsedCpuTime() },
+        )
         scope.launch {
             var previousPhase: String? = null
             engine.status.collect { state ->
