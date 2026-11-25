@@ -195,6 +195,34 @@ class RuntimeDiagnostics(context: Context) {
                                 cursor.getLong(1))
                         }
                     }
+                    // Phase 1: verify the newest completed session against
+                    // its original sample rows, without changing source data.
+                    // This is a single indexed count performed ON DEMAND.
+                    database.rawQuery(
+                        """SELECT id, sample_count FROM sessions
+                           WHERE status='COMPLETED'
+                           ORDER BY id DESC LIMIT 1""", null
+                    ).use { latest ->
+                        if (latest.moveToFirst()) {
+                            val id = latest.getLong(0)
+                            val expected = latest.getLong(1)
+                            val actual = database.rawQuery(
+                                "SELECT COUNT(*) FROM samples WHERE session_id=?",
+                                arrayOf(id.toString())
+                            ).use { samples ->
+                                if (samples.moveToFirst()) samples.getLong(0)
+                                else -1L
+                            }
+                            line("Latest saved session inspected", id)
+                            line("Latest saved declared samples", expected)
+                            line("Latest saved source rows", actual)
+                            line("Latest saved row integrity",
+                                if (actual == expected) "MATCH"
+                                else "MISMATCH — preserve data, report before RC1")
+                        } else {
+                            line("Latest saved row integrity", "no completed session yet")
+                        }
+                    }
                     // No full-table sample scan; this probe must stay cheap.
                     line("SQLite source", "read only")
                 }
