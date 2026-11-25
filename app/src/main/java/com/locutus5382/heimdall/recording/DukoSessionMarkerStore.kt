@@ -1,7 +1,6 @@
 package com.locutus5382.heimdall.recording
 
 import android.content.Context
-import com.locutus5382.heimdall.engine.duko.DukoWindow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -83,10 +82,9 @@ class DukoSessionMarkerStore(
                     arrayOf(sessionId.toString())
                 ).use {
                     if (!it.moveToFirst() || it.isNull(0) || it.isNull(1))
-                        null else DukoWindow(it.getLong(0),
-                            maxOf(it.getLong(0) + 1L, it.getLong(1)))
+                        null else it.getLong(0) to it.getLong(1)
                 }
-                check(bounds != null && elapsedMs in bounds.startMs..bounds.endMs) {
+                check(bounds != null && elapsedMs in bounds.first..bounds.second) {
                     "MARKER_OUTSIDE_SAVED_SAMPLES"
                 }
             }
