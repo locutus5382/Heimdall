@@ -109,6 +109,18 @@ class DukoSessionMarkerStore(
         }
     }
 
+    suspend fun rename(sessionId: Long, markerId: Long, label: String): Boolean =
+        withContext(Dispatchers.IO) {
+            require(sessionId > 0L && markerId > 0L)
+            val text = normalize(label)
+            require(text.isNotEmpty()) { "EMPTY_MARKER_LABEL" }
+            val values = android.content.ContentValues().apply { put("label", text) }
+            helper.writableDatabase.update(
+                "duko_session_markers", values, "session_id=? AND id=?",
+                arrayOf(sessionId.toString(), markerId.toString())
+            ) == 1
+        }
+
     suspend fun delete(sessionId: Long, markerId: Long): Boolean =
         withContext(Dispatchers.IO) {
             require(sessionId > 0L && markerId > 0L)
