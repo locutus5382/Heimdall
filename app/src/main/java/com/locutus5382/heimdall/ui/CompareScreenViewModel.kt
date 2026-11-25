@@ -7,6 +7,9 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.locutus5382.heimdall.engine.duko.DukoAbReportExport
 import com.locutus5382.heimdall.engine.duko.DukoComparisonReport
+import com.locutus5382.heimdall.engine.duko.DukoVisualDocument
+import com.locutus5382.heimdall.engine.duko.DukoVisualReport
+import com.locutus5382.heimdall.recording.DukoVisualRenderer
 import com.locutus5382.heimdall.engine.duko.DukoWindow
 import com.locutus5382.heimdall.recording.SavedSession
 import com.locutus5382.heimdall.recording.SessionArchive
@@ -25,6 +28,9 @@ internal interface ComparisonDataSource {
     suspend fun bounds(id: Long): DukoWindow?
     suspend fun compare(a: Long, b: Long, wa: DukoWindow, wb: DukoWindow): DukoComparisonReport?
     suspend fun write(uri: Uri, payload: String)
+    suspend fun writeVisual(
+        uri: Uri, document: DukoVisualDocument, format: DukoVisualRenderer.Format,
+    ) = error("VISUAL_REPORT_NOT_SUPPORTED")
 }
 
 /** A/B is descriptive telemetry evidence, not FPS or an inferred cause. */
@@ -36,6 +42,14 @@ internal class ComparisonRepository(context: Context) : ComparisonDataSource {
     override suspend fun bounds(id: Long): DukoWindow? = archive.dukoMonotonicBounds(id)
     override suspend fun compare(a: Long, b: Long, wa: DukoWindow, wb: DukoWindow): DukoComparisonReport? =
         archive.dukoCompare(a, b, wa, wb)
+
+    override suspend fun writeVisual(
+        uri: Uri, document: DukoVisualDocument, format: DukoVisualRenderer.Format,
+    ): Unit = withContext(Dispatchers.IO) {
+        val output = app.contentResolver.openOutputStream(uri, "wt")
+            ?: throw java.io.IOException("DOCUMENT_PROVIDER_REFUSED_WRITE")
+        output.use { DukoVisualRenderer.write(it, document, format) }
+    }
 
     override suspend fun write(uri: Uri, payload: String) = withContext(Dispatchers.IO) {
         app.contentResolver.openOutputStream(uri, "wt")?.use { output ->
@@ -67,6 +81,9 @@ internal data class CompareUiState(
     val exportStatus: String? = null,
     val pendingExport: PendingComparisonExport? = null,
     val writing: Boolean = false,
+    val pendingVisual: PendingDukoVisualExport? = null,
+    val visualWriting: Boolean = false,
+    val visualStatus: String? = null,
 ) {
     val canCompare: Boolean get() = a != null && b != null && a != b && !busy &&
         sessions.any { it.id == a } && sessions.any { it.id == b }
@@ -105,7 +122,8 @@ internal class CompareScreenViewModel(private val repo: ComparisonDataSource) : 
      * exports, and let the user recompute against the latest evidence.
      */
     fun reload() {
-        if (mutable.value.pendingExport != null || mutable.value.writing) return
+        if (mutable.value.pendingExport != null || mutable.value.writing ||
+            mutable.value.pendingVisual != null || mutable.value.visualWriting) return
         generation++
         compareJob?.cancel()
         mutable.update { it.copy(busy = false, report = null,
@@ -249,7 +267,8 @@ internal class CompareScreenViewModel(private val repo: ComparisonDataSource) : 
      */
     fun prepareExport(kind: ComparisonExport): String? {
         val state = mutable.value
-        if (state.pendingExport != null || state.writing) return null
+        if (state.pendingExport != null || state.writing ||
+            state.pendingVisual != null || state.visualWriting) return null
         val report = state.report ?: return null
         val windows = state.selectedWindows ?: return null
         val payload = when (kind) {
@@ -286,6 +305,48 @@ internal class CompareScreenViewModel(private val repo: ComparisonDataSource) : 
                     "Export failed: ${e.javaClass.simpleName}") }
             } finally {
                 mutable.update { it.copy(writing = false) }
+            }
+        }
+    }
+
+    /** Freeze an A/B comparison before the external SAF picker is opened. */
+    fun prepareVisual(format: DukoVisualRenderer.Format): String? {
+        val state = mutable.value
+        if (state.pendingExport != null || state.writing ||
+            state.pendingVisual != null || state.visualWriting) return null
+        val report = state.report ?: return null
+        val (wa, wb) = state.selectedWindows ?: return null
+        val document = DukoVisualReport.ab(report, wa, wb)
+        mutable.update { it.copy(pendingVisual = PendingDukoVisualExport(format, document),
+            visualStatus = null) }
+        val extension = if (format == DukoVisualRenderer.Format.PDF) ".pdf" else ".png"
+        return "DUKO_AB_" + report.sessionA + "_" + report.sessionB + extension
+    }
+
+    fun onVisualResult(format: DukoVisualRenderer.Format, uri: Uri?) {
+        val pending = mutable.value.pendingVisual
+        if (pending == null || pending.format != format) {
+            mutable.update { it.copy(visualStatus = "Export request expired.") }
+            return
+        }
+        mutable.update { it.copy(pendingVisual = null) }
+        if (uri == null) {
+            mutable.update { it.copy(visualStatus = "Visual export cancelled.") }
+            return
+        }
+        mutable.update { it.copy(visualWriting = true,
+            visualStatus = "Saving " + format.name + " report...") }
+        viewModelScope.launch {
+            try {
+                repo.writeVisual(uri, pending.document, format)
+                mutable.update { it.copy(visualStatus = format.name +
+                    " A/B report saved locally.") }
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (error: Exception) {
+                mutable.update { it.copy(visualStatus =
+                    "Visual export failed: " + error.javaClass.simpleName) }
+            } finally {
+                mutable.update { it.copy(visualWriting = false) }
             }
         }
     }
