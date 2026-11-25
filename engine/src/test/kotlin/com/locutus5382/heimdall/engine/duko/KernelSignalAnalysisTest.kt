@@ -63,6 +63,46 @@ class KernelSignalAnalysisTest {
         assertEquals(3, result.trace.size)
     }
 
+    @Test fun longMissingIntervalNeverBecomesConnectedLine() {
+        val w = DukoWindow(0L, 120_000L)
+        val plot = TimedSignalAccumulator("CPU LOAD", "%", w, bucketCount = 8,
+            expectedCadenceMs = 2_000L)
+        for (t in 0L..14_000L step 2_000L) plot.accept(t, 90.0)
+        // Missing almost one minute: bucket-centre proximity cannot substitute
+        // for verified consecutive samples.
+        for (t in 75_000L..120_000L step 2_000L) plot.accept(t, 20.0)
+        val points = plot.result().trace
+        assertTrue(points.size >= 3)
+        assertTrue(points.any { !it.continuousFromPrevious && it != points.first() })
+        assertEquals(90.0, plot.result().maximum!!, 0.001)
+        assertEquals(20.0, plot.result().minimum!!, 0.001)
+    }
+
+    @Test fun continuousSensorCadenceConnectsAdjacentObservedBuckets() {
+        val w = DukoWindow(0L, 120_000L)
+        val plot = TimedSignalAccumulator("GPU LOAD", "%", w, bucketCount = 8,
+            expectedCadenceMs = 2_000L)
+        for (t in 0L..120_000L step 2_000L) plot.accept(t, 55.0)
+        val points = plot.result().trace
+        assertEquals(8, points.size)
+        assertFalse(points.first().continuousFromPrevious)
+        assertTrue(points.drop(1).all { it.continuousFromPrevious })
+    }
+
+    @Test fun gapInsideOneBucketBreaksBothSidesOfAveragedPoint() {
+        val w = DukoWindow(0L, 80_000L)
+        val plot = TimedSignalAccumulator("TEMP", "C", w, bucketCount = 8,
+            expectedCadenceMs = 2_000L)
+        for (t in listOf(0L, 2_000L, 4_000L, 10_000L, 18_000L, 20_000L,
+            22_000L, 24_000L)) plot.accept(t, 37.0)
+        val points = plot.result().trace
+        // A six-second dropout inside the same bucket invalidates joins
+        // even if both neighboring buckets have some valid observations.
+        assertTrue(points.any { !it.continuousFromPrevious })
+        assertTrue(points.size >= 3)
+        assertFalse(points[1].continuousFromPrevious)
+    }
+
     @Test fun coreRankingAndPolicyClustersUseMeasuredIntervalsOnly() {
         val window = DukoWindow(0L, 6_000L)
         val a = CoreActivityAccumulator(window,
