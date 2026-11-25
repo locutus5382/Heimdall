@@ -413,8 +413,8 @@ internal fun SessionHistoryPanel(
                             Text(
                                 if (originalDuko != null)
                                     "Selected analysis is loading or unavailable. Reset to full session."
-                                else "DUKO analysis requires at least two monotonic samples; " +
-                                    "older sessions retain their basic summaries.",
+                                else "Duko time-weighted analysis requires at least two " +
+                                    "monotonic samples; older sessions retain their basic summaries.",
                                 color = Subtle
                             )
                         }
