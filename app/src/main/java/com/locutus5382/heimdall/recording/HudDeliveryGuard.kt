@@ -1,5 +1,7 @@
 package com.locutus5382.heimdall.recording
 
+import kotlinx.coroutines.CancellationException
+
 /**
  * A faulty overlay is presentation failure, never recording failure.
  *
@@ -16,6 +18,9 @@ internal inline fun safelyDeliverHud(
     return try {
         render()
         true
+    } catch (cancel: CancellationException) {
+        // The Service scope is stopping; preserve coroutine cancellation.
+        throw cancel
     } catch (failure: Exception) {
         runCatching { release() }
         runCatching { report(failure) }
