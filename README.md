@@ -10,14 +10,15 @@ to a server. Independent of the older CoreMetrics package.
 
 ## Current development state — Phase 1 Odin pretest, 25 November 2026
 
-Current candidate: **v0.8.6-odin-pretest-stability-alpha** (code 15),
-branch `feature/phase1-odin-stability-acceptance`, stacked on successful
-exact-head v0.8.5 `c3ff86a31fc68ecd7fe84a5f76c98ec7d4292140`.
+Current test candidate: **v0.8.7-odin-test-candidate** (code 16),
+branch `feature/phase1-v087-odin-test-candidate`, stacked on exact-head
+CI-green v0.8.6 `77e5131bb04470238dfd47a21a020e887f163117`.
+See [v0.8.7 test release notes](docs/PHASE1_V087_ODIN_TEST_RELEASE_NOTES.md).
 The tested baseline v0.8.0 `950cfc606aeca80e4db04f265632b7bf6fdec423`
 remains untouched. **This is not RC1 or a device-tested release.**
 
-Phase 1 improves HUD failure isolation, partially attached window
-rollback, and on-demand read-only verification of the latest saved
+Phase 1 improves HUD failure isolation, ownership-safe overlay removal,
+static sensor I/O caching, Canvas failure coalescing, and read-only verification of the latest saved
 session's SQLite sample count. See
 [the 27-case Odin acceptance matrix](docs/PHASE1_V086_ODIN_PRETEST.md).
 Everything in the physical acceptance matrix is NOT TESTED until the
@@ -110,7 +111,7 @@ build alone is not an accepted milestone.**
 
 Get the v0.8.6 pretest artifacts **only from successful exact-head push
 and PR workflow runs**. The expected artifact is
-`HEIMDALL-v0.8.6-odin-pretest-lean-debug`. Verify the matching APK
+`HEIMDALL-v0.8.7-odin-test-lean-debug`. Verify the matching APK
 SHA-256 manifest and commit before installing. CI debug signing can
 change between runs; if an update reports a signature mismatch, STOP.
 Do not uninstall Heimdall or delete recordings to make an APK install.
