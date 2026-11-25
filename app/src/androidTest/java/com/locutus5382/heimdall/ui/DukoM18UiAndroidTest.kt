@@ -1,5 +1,6 @@
 package com.locutus5382.heimdall.ui
 
+import android.net.Uri
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.rememberScrollState
@@ -26,6 +27,8 @@ import com.locutus5382.heimdall.engine.duko.DukoWindow
 import com.locutus5382.heimdall.engine.duko.FrequencyCapEvent
 import com.locutus5382.heimdall.engine.duko.FrequencyCapTimeline
 import com.locutus5382.heimdall.engine.duko.MeasurementOrigin
+import com.locutus5382.heimdall.engine.duko.TimedSignalAccumulator
+import com.locutus5382.heimdall.recording.SavedSession
 import com.locutus5382.heimdall.recording.DukoFoundationReport
 import com.locutus5382.heimdall.ui.navigation.BifrostTestActivity
 import com.locutus5382.heimdall.ui.theme.HeimdallTheme
@@ -41,10 +44,12 @@ class DukoM18UiAndroidTest {
     private fun fixture(): DukoFoundationReport {
         val w = DukoWindow(0L, 120_000L)
         val minutes = DukoMinuteAccumulator(w)
+        val loadTrace = TimedSignalAccumulator("CPU LOAD", "%", w)
         val residency = CpuPolicyResidencyAccumulator(w,
             mapOf("policy0" to setOf(0, 1)))
         for (t in 0L..120_000L step 2_000L) {
             minutes.acceptTick(t)
+            loadTrace.accept(t, 54.0)
             minutes.acceptObservation(DukoObservation(
                 elapsedMs = t, metric = DukoMetric.CPU_LOAD, value = 54.0,
                 sourceId = "/proc/stat", origin = MeasurementOrigin.VALIDATED_SYSFS
@@ -63,6 +68,7 @@ class DukoM18UiAndroidTest {
             capabilitySnapshotAvailable = false,
             confidence = DukoConfidence.assess(integrity, energy),
             minuteAnalysis = minuteReport,
+            timelines = mapOf("CPU LOAD" to loadTrace.result()),
             cpuPolicyResidency = residency.result(),
             events = events,
             insights = DukoIntelligentAnalysis.analyze(minuteReport,
@@ -102,4 +108,41 @@ class DukoM18UiAndroidTest {
             .performScrollTo().assertExists()
         compose.onNodeWithText("F / DUKO FINDINGS").performScrollTo().assertExists()
     }
+    @Test fun interactiveBatch3RangeAndLayeredSignalNavigationAreTouchAccessible() {
+        val report = fixture()
+        val repository = object : SessionScreenDataSource {
+            override suspend fun recent(): List<SavedSession> = emptyList()
+            override suspend fun details(id: Long): SessionDetail = error("unused")
+            override suspend fun exportCsv(id: Long, uri: Uri): Long = 0L
+        }
+        val model = SessionScreenViewModel(repository)
+        compose.setContent {
+            HeimdallTheme {
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                    DukoRangeWorkbench(
+                        sessionId = report.sessionId,
+                        original = report,
+                        state = SessionsUiState(),
+                        model = model,
+                        markers = emptyList(),
+                        onExportRange = {},
+                    )
+                }
+            }
+        }
+        compose.onNodeWithText("G / INTERACTIVE ANALYSIS")
+            .performScrollTo().assertExists()
+        compose.onNodeWithText("APPLY RANGE")
+            .performScrollTo().assertExists()
+        compose.onNodeWithText("EXPORT SELECTED ORIGINAL CSV")
+            .performScrollTo().assertExists()
+        compose.onNodeWithText("G / LAYERED TELEMETRY")
+            .performScrollTo().assertExists()
+        compose.onNodeWithText("CPU LOAD", substring = true)
+            .performScrollTo().assertExists()
+        compose.onNodeWithText("CLOCKS").performScrollTo().performClick()
+        compose.onNodeWithText("This sensor group has no recorded evidence.")
+            .performScrollTo().assertExists()
+    }
+
 }
