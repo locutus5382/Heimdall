@@ -1,5 +1,7 @@
 package com.locutus5382.heimdall.ui.v2
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -179,6 +181,9 @@ private fun V2RunSelectButton(label: String, selected: Boolean, onClick: () -> U
 @Composable
 internal fun V2ToolsScreen(model: DiagnosticsViewModel) {
     val state by model.ui.collectAsStateWithLifecycle()
+    val exportPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri -> model.onExportResult(uri) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -187,8 +192,15 @@ internal fun V2ToolsScreen(model: DiagnosticsViewModel) {
         V2Surface {
             Text("DEVICE INSPECTION", color = V2Palette.cyan,
                 fontWeight = FontWeight.Bold)
-            Button(onClick = model::inspect, enabled = !state.inspecting) {
-                Text(if (state.inspecting) "INSPECTING…" else "RUN DIAGNOSTICS")
+            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                Button(onClick = model::inspect, enabled = !state.inspecting) {
+                    Text(if (state.inspecting) "INSPECTING…" else "RUN DIAGNOSTICS")
+                }
+                OutlinedButton(
+                    onClick = { model.requestExport()?.let(exportPicker::launch) },
+                    enabled = state.snapshot != null && !state.inspecting &&
+                        !state.writing && state.pendingExportText == null
+                ) { Text("EXPORT TXT") }
             }
             state.message?.let { Text(it, color = V2Palette.amber) }
         }
