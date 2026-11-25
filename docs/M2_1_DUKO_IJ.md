@@ -20,7 +20,7 @@
 - Use `DukoVisualReport` to construct an Android-free immutable report from A/B or multi-run *already analyzed* evidence. A snapshot freezes before the Storage Access Framework picker opens. No changes to source session data or export contents if the user changes tags/runs while the picker is open.
 - `DukoVisualRenderer` uses native Android `PdfDocument` and `Bitmap`/`Canvas` **without** network, screen capture, game frames, MediaProjection or external fonts.
 - A shared layout/pagination scheme renders every comparison metric, per-candidate window, evidence quality, relevant context caveats and explicit scope warnings. Unavailable/blocked deltas are represented with a clear `DELTA BLOCKED` label. No fabricated numerical comparisons.
-- PDF pages are A4-like at 595 x 842 points. PNG stitches the same bounded report pages at 2x scale (RGB565). An overlong document fails explicitly rather than silently clipping content (8 page bound).
+- PDF pages are A4-like at 595 x 842 points. PNG stitches the same bounded report pages at 2x scale for up to 6 pages, then uses 1.45x for longer reports (RGB565). An overlong document fails explicitly rather than silently clipping content (12 page bound).
 - SAF file extensions and MIME types match the emitted bytes. Cancelled pickers do not write. Stream creation, PDF generation and PNG encoding run on `Dispatchers.IO`. No global storage permission.
 
 ## Required gates before Odin testing
