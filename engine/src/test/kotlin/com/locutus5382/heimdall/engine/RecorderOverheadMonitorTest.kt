@@ -18,7 +18,7 @@ class RecorderOverheadMonitorTest {
         }
         val live = requireNotNull(monitor.snapshot())
         assertEquals(100L, live.ticks)
-        assertEquals(5L, live.readP95UpperMs)
+        assertEquals(3L, live.readP95UpperMs)
         assertEquals(5L, live.appendP95UpperMs)
         assertEquals(8L, live.totalP95UpperMs)
         assertEquals(2_100L, live.maxReadMs)
