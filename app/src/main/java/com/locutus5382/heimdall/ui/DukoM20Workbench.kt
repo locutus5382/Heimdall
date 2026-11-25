@@ -229,10 +229,8 @@ internal fun DukoLayeredSignals(
             }
             traces.forEachIndexed { i, (_, trace) ->
                 val color = m20Colors[i % m20Colors.size]
-                val gap = max(8_000L, window.durationMs / 150L * 3L)
                 trace.trace.zipWithNext().forEach { (a, b) ->
-                    if (b.elapsedMs > a.elapsedMs &&
-                        b.elapsedMs - a.elapsedMs <= gap)
+                    if (b.continuousFromPrevious && b.elapsedMs > a.elapsedMs)
                         drawLine(color, Offset(x(a.elapsedMs), y(a.value)),
                             Offset(x(b.elapsedMs), y(b.value)), 2.dp.toPx())
                 }
