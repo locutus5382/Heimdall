@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -158,47 +159,66 @@ private fun V2AnalysisChip(text: String, isSelected: Boolean, onClick: () -> Uni
 
 @Composable
 private fun V2Overview(report: DukoFoundationReport) {
+    val signals = report.integrity.metrics
     V2RecordedTrace(
-        title = "CPU / GPU LOAD  ·  RECORDED TIMELINE",
+        title = "CPU / GPU LOAD   •   RECORDED TIMELINE",
         traces = listOfNotNull(
             report.timelines["CPU LOAD"]?.let { V2Trace(it, V2Palette.cyan) },
             report.timelines["GPU LOAD"]?.let { V2Trace(it, V2Palette.amber) },
         ),
         fixedRange = 0.0..100.0,
     )
-    V2Surface {
-        Text("60-SECOND MEASURED TREND", color = V2Palette.cyan,
-            fontWeight = FontWeight.Bold, fontSize = 12.sp)
-        Text("CPU load  /  cyan       GPU load  /  amber  ·  blank means missing",
-            color = V2Palette.muted, fontSize = 11.sp)
-        val blocks = report.minuteAnalysis?.blocks.orEmpty()
-        if (blocks.isEmpty()) {
-            Text("No minute-window evidence available", color = V2Palette.muted)
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val available = listOf(
+            DukoMetric.CPU_LOAD, DukoMetric.GPU_LOAD,
+            DukoMetric.CPU_TEMPERATURE, DukoMetric.GPU_TEMPERATURE
+        )
+        if (maxWidth >= 490.dp) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                available.chunked(2).forEach { pair ->
+                    Row(Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        pair.forEach { metric ->
+                            Box(Modifier.weight(1f)) {
+                                V2MetricEvidence(
+                                    metric.name.replace('_', ' '),
+                                    signals[metric], metric.unit.symbol
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         } else {
-            V2MinuteTrend(
-                blocks.map { it.metrics[DukoMetric.CPU_LOAD]?.median },
-                blocks.map { it.metrics[DukoMetric.GPU_LOAD]?.median }
-            )
-            Text(blocks.size.toString() + " observed minute windows" +
-                if (report.minuteAnalysis?.truncated == true) " · truncated" else "",
-                color = V2Palette.muted, fontSize = 11.sp)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                available.forEach { metric ->
+                    V2MetricEvidence(
+                        metric.name.replace('_', ' '),
+                        signals[metric], metric.unit.symbol)
+                }
+            }
         }
     }
-    listOf(DukoMetric.CPU_LOAD, DukoMetric.GPU_LOAD,
-        DukoMetric.CPU_TEMPERATURE, DukoMetric.GPU_TEMPERATURE).forEach { metric ->
-        V2MetricEvidence(metric.name.replace('_', ' '),
-            report.integrity.metrics[metric], "%".takeIf {
-                metric == DukoMetric.CPU_LOAD || metric == DukoMetric.GPU_LOAD
-            } ?: "°C")
-    }
     V2Surface {
-        Text("EVIDENCE & PROVENANCE", color = V2Palette.cyan,
-            fontWeight = FontWeight.Bold)
-        Text("Session " + report.confidence.sessionOutcome +
-            "    Battery calibration " + report.confidence.batteryCalibration,
-            color = V2Palette.text, fontSize = 12.sp)
-        Text("Device readings are not rendered FPS or game-specific power.",
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("60-SECOND WINDOWS", color = V2Palette.cyan,
+                    fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                val minute = report.minuteAnalysis
+                Text(
+                    if (minute == null) "Unavailable in this session"
+                    else minute.reportedBlocks.toString() + " observed windows" +
+                        if (minute.truncated) " · limited display" else "",
+                    color = V2Palette.text, fontSize = 12.sp
+                )
+            }
+            Text("OPEN MINUTES →", color = V2Palette.muted, fontSize = 10.sp)
+        }
+        Text("Evidence: " + report.confidence.sessionOutcome +
+            "   •   Battery calibration: " + report.confidence.batteryCalibration,
             color = V2Palette.muted, fontSize = 11.sp)
+        Text("System measurements, not rendered FPS or game-only power.",
+            color = V2Palette.subtle, fontSize = 10.sp)
     }
 }
 
