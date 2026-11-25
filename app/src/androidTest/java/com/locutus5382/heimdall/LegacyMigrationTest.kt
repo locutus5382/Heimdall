@@ -69,7 +69,7 @@ class LegacyMigrationTest {
 
             SQLiteDatabase.openDatabase(file.absolutePath, null,
                 SQLiteDatabase.OPEN_READONLY).use { db ->
-                assertEquals(7, db.version)
+                assertEquals(8, db.version)
                 db.rawQuery(
                     "SELECT status, started_at_ms, ended_at_ms, stop_requested_at_ms FROM sessions WHERE id=42",
                     null
