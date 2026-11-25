@@ -158,6 +158,14 @@ private fun V2AnalysisChip(text: String, isSelected: Boolean, onClick: () -> Uni
 
 @Composable
 private fun V2Overview(report: DukoFoundationReport) {
+    V2RecordedTrace(
+        title = "CPU / GPU LOAD  ·  RECORDED TIMELINE",
+        traces = listOfNotNull(
+            report.timelines["CPU LOAD"]?.let { V2Trace(it, V2Palette.cyan) },
+            report.timelines["GPU LOAD"]?.let { V2Trace(it, V2Palette.amber) },
+        ),
+        fixedRange = 0.0..100.0,
+    )
     V2Surface {
         Text("60-SECOND MEASURED TREND", color = V2Palette.cyan,
             fontWeight = FontWeight.Bold, fontSize = 12.sp)
@@ -289,6 +297,17 @@ private fun V2Cores(report: DukoFoundationReport) {
         Text("System-wide core utilization is not a game-thread trace.",
             color = V2Palette.muted, fontSize = 11.sp)
     }
+    report.perCoreTimelines.toSortedMap().entries.take(8).forEach { (core, trace) ->
+        V2RecordedTrace(
+            title = "CORE " + core + "  /  RECORDED UTILIZATION",
+            traces = listOf(V2Trace(trace, V2Palette.cyan)),
+            fixedRange = 0.0..100.0,
+        )
+    }
+    if (report.perCoreTimelines.size > 8) V2Surface {
+        Text("More core traces recorded; showing first eight.",
+            color = V2Palette.muted)
+    }
 }
 
 @Composable
@@ -312,6 +331,14 @@ private fun V2Policies(report: DukoFoundationReport) {
 
 @Composable
 private fun V2Thermals(report: DukoFoundationReport) {
+    V2RecordedTrace(
+        title = "THERMAL SENSORS  /  RECORDED TIMELINE",
+        traces = listOfNotNull(
+            report.timelines["BATTERY TEMP"]?.let { V2Trace(it, V2Palette.amber) },
+            report.timelines["CPU TEMP"]?.let { V2Trace(it, V2Palette.cyan) },
+            report.timelines["GPU TEMP"]?.let { V2Trace(it, V2Palette.coral) },
+        ),
+    )
     listOf(DukoMetric.BATTERY_TEMPERATURE, DukoMetric.CPU_TEMPERATURE,
         DukoMetric.GPU_TEMPERATURE).forEach { metric ->
         V2MetricEvidence(metric.name.replace('_', ' '),
