@@ -59,13 +59,13 @@ class RecordingRoundTripTest {
         val originalId = recording.sessionId
         assertTrue(originalId > 0L)
         compose.waitForIdle()
-        compose.onNodeWithText("Recording telemetry").assertExists()
+        compose.onNodeWithText("● RECORDING").assertExists()
 
         // An Activity recreation must reflect the original ongoing recording,
         // not allocate a second Service/engine or silently stop sampling.
         compose.activityRule.scenario.recreate()
         compose.waitForIdle()
-        compose.onNodeWithText("Recording telemetry").assertExists()
+        compose.onNodeWithText("● RECORDING").assertExists()
         val afterRecreate = RecorderStatusHub.state.value as RecorderStatus.Recording
         assertEquals(originalId, afterRecreate.sessionId)
 
@@ -84,7 +84,7 @@ class RecordingRoundTripTest {
         }
         assertTrue(finished.samples > 0L)
         compose.waitForIdle()
-        compose.onNodeWithText("Session saved").assertExists()
+        compose.onNodeWithText("● SAVED").assertExists()
 
         // Verify prototype history and CSV use the same persisted source rows.
         val archive = SessionArchive(app)
