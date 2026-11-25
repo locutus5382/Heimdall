@@ -5,6 +5,7 @@ import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.locutus5382.heimdall.engine.DeviceSample
+import com.locutus5382.heimdall.engine.duko.DukoEventType
 import com.locutus5382.heimdall.engine.duko.DukoEvidence
 import com.locutus5382.heimdall.engine.duko.DukoMetric
 import com.locutus5382.heimdall.engine.duko.DukoSessionOutcome
@@ -51,7 +52,23 @@ class DukoWindowSelectionAndroidTest {
             val requested = DukoWindow(start + 2_000L, start + 6_000L)
             val selected = requireNotNull(analyzer.analyze(session, requested))
             assertEquals(requested, selected.window)
-            assertEquals(3, selected.analysisVersion)
+            assertEquals(4, selected.analysisVersion)
+            // M1.8: selecting only a slice MUST NOT invent recording
+            // start/end events at the slice's endpoints.
+            val selectedEvents = requireNotNull(selected.events).events
+            assertTrue(selectedEvents.any {
+                it.type == DukoEventType.ANALYSIS_WINDOW_BEGIN
+            })
+            assertTrue(selectedEvents.any {
+                it.type == DukoEventType.ANALYSIS_WINDOW_END
+            })
+            assertFalse(selectedEvents.any {
+                it.type == DukoEventType.RECORDING_BEGIN ||
+                    it.type == DukoEventType.RECORDING_COMPLETE
+            })
+            val fullEvents = requireNotNull(complete.events).events
+            assertTrue(fullEvents.any { it.type == DukoEventType.RECORDING_BEGIN })
+            assertTrue(fullEvents.any { it.type == DukoEventType.RECORDING_COMPLETE })
             assertEquals(30.0, selected.integrity.metrics
                 .getValue(DukoMetric.CPU_LOAD).timeWeightedMean!!, 1e-9)
             assertEquals(3, selected.integrity.metrics
@@ -104,5 +121,11 @@ class DukoWindowSelectionAndroidTest {
         assertEquals(DukoEvidence.QUALIFIED,
             subset.confidence.metricConclusions[DukoMetric.CPU_LOAD])
         assertTrue("SESSION_INTERRUPTED" in subset.confidence.warnings)
+        assertTrue(requireNotNull(subset.events).events.any {
+            it.type == DukoEventType.ANALYSIS_WINDOW_END
+        })
+        assertFalse(requireNotNull(subset.events).events.any {
+            it.type == DukoEventType.RECORDING_INTERRUPTED
+        })
     }
 }

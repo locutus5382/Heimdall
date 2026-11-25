@@ -268,6 +268,7 @@ internal fun SessionHistoryPanel(
                         if (duko != null) {
                             DukoSignalCharts(duko)
                             DukoCoreAndPressurePanel(duko)
+                            DukoM18AnalysisPanel(duko)
                             Text("DUKO FOUNDATION · DATA INTEGRITY", color = Amber)
                             Text(
                                 "Observed monotonic interval: ${duko.window.durationMs / 1000L}s · " +

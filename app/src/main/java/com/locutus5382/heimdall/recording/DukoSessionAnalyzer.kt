@@ -33,6 +33,13 @@ import com.locutus5382.heimdall.engine.duko.FrequencyCapTimeline
 import com.locutus5382.heimdall.engine.duko.FrequencyCapTimelineAccumulator
 import com.locutus5382.heimdall.engine.duko.TimedSignalAccumulator
 import com.locutus5382.heimdall.engine.duko.TimedSignalSummary
+import com.locutus5382.heimdall.engine.duko.DukoMinuteAccumulator
+import com.locutus5382.heimdall.engine.duko.DukoMinuteReport
+import com.locutus5382.heimdall.engine.duko.CpuPolicyResidencyAccumulator
+import com.locutus5382.heimdall.engine.duko.CpuPolicyResidencyReport
+import com.locutus5382.heimdall.engine.duko.DukoEventAccumulator
+import com.locutus5382.heimdall.engine.duko.DukoEventSample
+import com.locutus5382.heimdall.engine.duko.DukoEventTimeline
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -58,7 +65,10 @@ data class DukoFoundationReport(
     val timelines: Map<String, TimedSignalSummary> = emptyMap(),
     val perCoreTimelines: Map<Int, TimedSignalSummary> = emptyMap(),
     val declaredClusterTuneEnabled: Boolean? = null,
-    val analysisVersion: Int = 3,
+    val minuteAnalysis: DukoMinuteReport? = null,
+    val cpuPolicyResidency: List<CpuPolicyResidencyReport> = emptyList(),
+    val events: DukoEventTimeline? = null,
+    val analysisVersion: Int = 4,
 )
 
 internal class DukoSessionAnalyzer(
@@ -153,6 +163,9 @@ internal class DukoSessionAnalyzer(
             }
             val coreActivity = CoreActivityAccumulator(window, policies, cadence)
             val frequencyCaps = FrequencyCapTimelineAccumulator(window, cadence)
+            val minuteAnalysis = DukoMinuteAccumulator(window, cadence)
+            val policyResidency = CpuPolicyResidencyAccumulator(window, policies, cadence)
+            val eventTimeline = DukoEventAccumulator(window, cadence)
             // Fixed-size real-data plot buckets. Each selected interval gets
             // its own actual-sample extrema, mean, standard deviation and trace.
             val timelineSpecs = linkedMapOf(
@@ -226,7 +239,8 @@ internal class DukoSessionAnalyzer(
                           battery_status,cpu_policy_limits,
                           cpu_policy_hardware_max,cpu_core_load_pct,
                           psi_cpu_some_avg10,psi_memory_some_avg10,
-                          psi_memory_full_avg10
+                          psi_memory_full_avg10,cpu_policy_clocks,
+                          thermal_status
                    FROM $selectedFrom WHERE session_id=?$selectedSql ORDER BY id""",
                 selectedArgs
             ).use { c ->
@@ -234,6 +248,7 @@ internal class DukoSessionAnalyzer(
                     if (c.isNull(0)) continue // Legacy row, no valid elapsed clock
                     val t = c.getLong(0)
                     if (t < 0) continue
+                    minuteAnalysis.acceptTick(t)
                     val coreLoads = CoreLoadCodec.decode(
                         if (c.isNull(16)) null else c.getString(16)
                     )
@@ -246,6 +261,8 @@ internal class DukoSessionAnalyzer(
                     frequencyCaps.accept(t,
                         policyMap(if (c.isNull(14)) null else c.getString(14)),
                         policyMap(if (c.isNull(15)) null else c.getString(15)))
+                    policyResidency.accept(t,
+                        policyMap(if (c.isNull(20)) null else c.getString(20)))
                     fun signal(index: Int): Double? =
                         if (c.isNull(index)) null else c.getDouble(index)
                             .takeIf { it.isFinite() }
@@ -259,6 +276,17 @@ internal class DukoSessionAnalyzer(
                     timelines["CPU PSI SOME AVG10"]?.accept(t, signal(17))
                     timelines["MEMORY PSI SOME AVG10"]?.accept(t, signal(18))
                     timelines["MEMORY PSI FULL AVG10"]?.accept(t, signal(19))
+                    minuteAnalysis.acceptPressure(t, signal(17), signal(18), signal(19))
+                    eventTimeline.accept(DukoEventSample(
+                        elapsedMs = t,
+                        cpuLoadPct = signal(1),
+                        gpuLoadPct = signal(2),
+                        batteryTemperatureC = signal(5),
+                        androidThermalStatus = if (c.isNull(21)) null
+                            else c.getInt(21),
+                        cpuPsiSomeAvg10 = signal(17),
+                        memoryPsiSomeAvg10 = signal(18),
+                    ))
                     val gpuMhz = if (c.isNull(4)) null else c.getDouble(4)
                         .takeIf { it.isFinite() && it > 0.0 && it <= Long.MAX_VALUE.toDouble() }
                         ?.toLong()?.takeIf { it > 0L }
@@ -270,7 +298,7 @@ internal class DukoSessionAnalyzer(
                         validity = if (gpuMhz == null) ReadingValidity.UNAVAILABLE
                             else ReadingValidity.VALID,
                     ))
-                    batteryEnergy.accept(DukoBatteryPoint(
+                    val batteryPoint = DukoBatteryPoint(
                         elapsedMs = t,
                         currentMicroAmps = if (c.isNull(9)) null else c.getLong(9),
                         voltageMilliVolts = if (c.isNull(10)) null else c.getInt(10),
@@ -288,7 +316,9 @@ internal class DukoSessionAnalyzer(
                                 DukoBatteryStatus.FULL
                             else -> DukoBatteryStatus.UNKNOWN
                         }
-                    ))
+                    )
+                    batteryEnergy.accept(batteryPoint)
+                    minuteAnalysis.acceptBattery(batteryPoint)
                     for (i in selectedMetrics.indices) {
                         val metric = selectedMetrics[i]
                         val value = if (c.isNull(i + 1)) null
@@ -315,6 +345,7 @@ internal class DukoSessionAnalyzer(
                             t, metric, value, sourceId = src, origin = origin
                         )
                         accumulators.getValue(metric).accept(observation)
+                        minuteAnalysis.acceptObservation(observation)
                         thermalAccumulators[metric]?.accept(observation)
                         stabilityAccumulators[metric]?.accept(observation)
                     }
@@ -329,6 +360,7 @@ internal class DukoSessionAnalyzer(
                 else -> DukoSessionOutcome.NEEDS_RECOVERY
             }
             val integrity = DukoSessionIntegrity(outcome, reports)
+            val capReport = frequencyCaps.result()
             val energy = batteryEnergy.finish()
             val thermal = thermalAccumulators.mapValues { (_, analyzer) ->
                 analyzer.finish()
@@ -346,7 +378,16 @@ internal class DukoSessionAnalyzer(
                 gpuClockResidency = gpuResidency.result(),
                 thermalStability = stabilityAccumulators.mapValues { (_, a) -> a.result() },
                 coreActivity = coreActivity.result(),
-                frequencyCaps = frequencyCaps.result(),
+                frequencyCaps = capReport,
+                minuteAnalysis = minuteAnalysis.result(),
+                cpuPolicyResidency = policyResidency.result(),
+                events = eventTimeline.result(
+                    caps = capReport,
+                    interrupted = outcome != DukoSessionOutcome.COMPLETED,
+                    wholeRecording = selectedWindow == null ||
+                        (selectedWindow.startMs == recorded.first &&
+                            selectedWindow.endMs == recorded.second),
+                ),
                 timelines = timelines.mapValues { (_, a) -> a.result() },
                 perCoreTimelines = coreTimelines.mapValues { (_, a) -> a.result() },
                 declaredClusterTuneEnabled = declaredClusterTuneEnabled,
