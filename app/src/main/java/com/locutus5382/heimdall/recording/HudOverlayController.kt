@@ -207,9 +207,10 @@ internal class HudOverlayController(private val app: Context) :
         alignDock(config)
         if (originalX != params?.x || originalY != params?.y) {
             updateWindow()
+            if (releasePending) return
             positionUnlock()
         }
-        syncLock(config)
+        if (!releasePending) syncLock(config)
     }
 
     private fun requestStop() {
@@ -428,6 +429,9 @@ internal class HudOverlayController(private val app: Context) :
     }
 
     private fun positionUnlock() {
+        // A WindowManager cleanup is in progress: do not update or recreate
+        // any window whose original owner may still be attached.
+        if (releasePending) return
         val parent = params ?: return
         val p = unlockParams ?: return
         val chip = unlock ?: return
