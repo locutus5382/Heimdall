@@ -139,7 +139,7 @@ class PerCorePsiAndCapAndroidTest {
             db.setVersion(6)
         }
         val database = HeimdallDatabase.helper(context, dbName).readableDatabase
-        assertEquals(7, database.version)
+        assertEquals(8, database.version)
         database.rawQuery("SELECT id, session_id, cpu_load_pct, cpu_core_load_pct," +
             " psi_cpu_some_avg10,psi_memory_some_avg10,psi_memory_full_avg10 " +
             "FROM samples WHERE id=11", null).use { cursor ->
