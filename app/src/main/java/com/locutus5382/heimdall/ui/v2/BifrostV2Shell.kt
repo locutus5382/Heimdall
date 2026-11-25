@@ -2,6 +2,7 @@ package com.locutus5382.heimdall.ui.v2
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -42,15 +45,29 @@ internal enum class BifrostV2Destination(val label: String, val short: String) {
 }
 
 internal object V2Palette {
-    val background = Color(0xFF080D16)
-    val panel = Color(0xFF111A28)
-    val raised = Color(0xFF192539)
-    val border = Color(0xFF26364A)
-    val text = Color(0xFFF2F5FA)
-    val muted = Color(0xFF9DAFC4)
-    val cyan = Color(0xFF78D5EB)
-    val amber = Color(0xFFF5B85A)
-    val coral = Color(0xFFFC7482)
+    // Charcoal instrument-panel design; Heimdall cyan and amber remain the
+    // only prominent accent colors. The references inform composition, not
+    // a change to yellow/green branding or excessive glowing panels.
+    val background = Color(0xFF0B0C10)
+    val rail = Color(0xFF101319)
+    val panel = Color(0xFF171B22)
+    val raised = Color(0xFF222833)
+    val border = Color(0xFF343B47)
+    val divider = Color(0xFF282E37)
+    val text = Color(0xFFF5F7FA)
+    val muted = Color(0xFFA2ADBB)
+    val subtle = Color(0xFF788797)
+    val cyan = Color(0xFF66D5ED)
+    val amber = Color(0xFFF1B262)
+    val coral = Color(0xFFFF7382)
+    val teal = Color(0xFF55CDB8)
+
+    val surfaceGlow: Brush = Brush.linearGradient(
+        listOf(Color(0xFF26313A), Color(0xFF1B2029), panel)
+    )
+    val quietGlow: Brush = Brush.linearGradient(
+        listOf(Color(0xFF26272E), Color(0xFF181D24), Color(0xFF14181D))
+    )
 }
 
 @Composable
@@ -71,14 +88,24 @@ internal fun BifrostV2Shell(
         if (landscape) {
             Row(Modifier.fillMaxSize()) {
                 Column(
-                    Modifier.width(104.dp).fillMaxHeight()
-                        .background(V2Palette.panel)
-                        .padding(horizontal = 8.dp, vertical = 14.dp),
+                    Modifier.width(94.dp).fillMaxHeight()
+                        .background(V2Palette.rail)
+                        .padding(horizontal = 9.dp, vertical = 13.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Text("H", color = V2Palette.cyan, fontSize = 24.sp,
-                        fontWeight = FontWeight.Black,
-                        modifier = Modifier.padding(start = 13.dp, bottom = 17.dp))
+                    Box(
+                        Modifier.width(44.dp).height(44.dp)
+                            .background(V2Palette.surfaceGlow, RoundedCornerShape(14.dp))
+                            .border(1.dp, V2Palette.border, RoundedCornerShape(14.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("H", color = V2Palette.cyan, fontSize = 24.sp,
+                            fontWeight = FontWeight.Black)
+                    }
+                    Text("HEIMDALL", color = V2Palette.muted, fontSize = 9.sp,
+                        letterSpacing = 0.8.sp,
+                        modifier = Modifier.padding(bottom = 18.dp))
                     BifrostV2Destination.entries.forEach { item ->
                         V2DestinationChip(item, selected = destination == item,
                             compact = true, onClick = { navigate(item) })
@@ -125,9 +152,11 @@ private fun V2DestinationChip(
         Modifier.fillMaxWidth().heightIn(min = 48.dp)
             .background(if (selected) V2Palette.raised else Color.Transparent,
                 RoundedCornerShape(11.dp))
+            .border(1.dp, if (selected) V2Palette.border else Color.Transparent,
+                RoundedCornerShape(11.dp))
             .clickable(role = Role.Tab, onClick = onClick)
             .semantics { this.selected = selected }
-            .padding(horizontal = if (compact) 9.dp else 3.dp, vertical = 12.dp),
+            .padding(horizontal = if (compact) 7.dp else 3.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(if (compact) tab.label else tab.short,
