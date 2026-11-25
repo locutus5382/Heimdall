@@ -30,7 +30,7 @@ internal interface ComparisonDataSource {
     suspend fun write(uri: Uri, payload: String)
     suspend fun writeVisual(
         uri: Uri, document: DukoVisualDocument, format: DukoVisualRenderer.Format,
-    ) = error("VISUAL_REPORT_NOT_SUPPORTED")
+    ): Unit = error("VISUAL_REPORT_NOT_SUPPORTED")
 }
 
 /** A/B is descriptive telemetry evidence, not FPS or an inferred cause. */
