@@ -8,7 +8,7 @@ private SQLite database and one optional Canvas HUD. It does **not** measure
 FPS, control clocks/fans, require root, ask for an account, or send recordings
 to a server. Independent of the older CoreMetrics package.
 
-## Current development state (23 November 2026)
+## Current development state (25 November 2026)
 
 The Bifrost touchscreen-first UI integration is being validated in draft
 [PR #54](https://github.com/locutus5382/Heimdall/pull/54), branch
@@ -16,9 +16,13 @@ The Bifrost touchscreen-first UI integration is being validated in draft
 gate**; M1.7 physical Odin 2 Portal validation has **not** been completed.
 **This is not RC1, a stable signed release, or a Play Store build.**
 
-The Gradle app version currently remains
-`0.8.0-percore-psi-alpha` (versionCode 9). Development milestone numbers
-M1.6 / M1.7 refer to **integration work**, not that Gradle version.
+The **unchanged, Odin-testable baseline** remains commit
+`950cfc606aeca80e4db04f265632b7bf6fdec423`,
+`0.8.0-percore-psi-alpha`, with 96/96 standard and 96/96 optimized
+Android API 35 tests passing. **M1.8 development is isolated** on
+`feature/m18-duko-minute-residency-events`; its version is
+`0.8.1-duko-timelines-alpha` (versionCode 10). This development branch is
+not the user's verified v0.8.0 APK or an RC1 candidate.
 
 ### Working features in source
 
@@ -52,6 +56,13 @@ M1.6 / M1.7 refer to **integration work**, not that Gradle version.
 - **Diagnostics:** explicit on-device read-only CPU-policy, GPU, thermal,
   PSI, capability, permissions and database inspection, optionally exported
   as a local TXT report.
+- **M1.8 DUKO analytics (in development):** one-minute monotonic interval
+  summaries including medians/P95, coverage, energy evidence and PSI;
+  per-policy CPU sampled clock residency/transitions with unknown-time
+  accounting; and a unified retrospective event timeline for frequency caps,
+  sustained load, battery temperature, OS thermal status and system PSI.
+  Thresholds are heuristic and cannot establish FPS loss or cap causation.
+  See [M1.8 specification](docs/M1_8_DUKO_BCD.md).
 - **M1.6 archive continuity:** exact saved-session handoff, user-initiated
   refresh and incremental history expansion up to 100 recent completed runs.
   A/B computations reject rapid duplicate requests and preserve frozen
@@ -85,8 +96,11 @@ verifies permissions and APK checksums, and runs API 35 instrumentation
 against the normal and separately optimized QA builds. **A green Android
 build alone is not an accepted milestone.**
 
-The CI artifacts `HEIMDALL-v0.8.0-percore-psi-debug` and
-`HEIMDALL-v0.8.0-percore-psi-lean-debug` contain test APKs and a SHA-256 manifest.
+The CI artifacts `HEIMDALL-v0.8.1-duko-timelines-debug` and
+`HEIMDALL-v0.8.1-duko-timelines-lean-debug` contain test APKs and a SHA-256 manifest.
+Do **not** install the M1.8 build for Odin acceptance until its new
+exact-head tests pass. The already verified 0.8.0 APK remains available from
+the successful [baseline run](https://github.com/locutus5382/Heimdall/actions/runs/45260720071).
 Install only from a **successful exact-commit run**. CI debug signing
 certificates can change between runs, so `adb install -r` may reject an
 upgrade. **Never uninstall Heimdall to bypass a signing mismatch if its

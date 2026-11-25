@@ -51,6 +51,7 @@ class PerCorePsiAndCapAndroidTest {
                     psiCpuSomeAvg10 = 8.0 + i % 5,
                     psiMemorySomeAvg10 = 2.0 + i % 5,
                     psiMemoryFullAvg10 = 0.5 + i * 0.1,
+                    cpuPolicyClocksMHz = mapOf("policy0" to if (i < 30) 1600L else 1800L),
                     cpuPolicyLimitsMHz = mapOf("policy0" to 1800L),
                     cpuPolicyHardwareMaxMHz = mapOf("policy0" to 2100L),
                 )
@@ -71,6 +72,23 @@ class PerCorePsiAndCapAndroidTest {
             assertTrue(requireNotNull(report.frequencyCaps)
                 .policies.single { it.policyId == "policy0" }.presetLike)
             assertEquals(true, report.declaredClusterTuneEnabled)
+            val minutes = requireNotNull(report.minuteAnalysis)
+            assertEquals(2L, minutes.totalBlocks)
+            assertEquals(2, minutes.blocks.size)
+            assertEquals(30, minutes.blocks[0].recordedRows)
+            assertEquals(31, minutes.blocks[1].recordedRows)
+            assertTrue(minutes.blocks[0].metrics.getValue(
+                com.locutus5382.heimdall.engine.duko.DukoMetric.CPU_LOAD
+            ).p95 != null)
+            val cpuPolicy = report.cpuPolicyResidency.single {
+                it.policyId == "policy0"
+            }
+            assertEquals(61, cpuPolicy.observedSamples)
+            assertEquals(1, cpuPolicy.residency.transitions)
+            assertEquals(120_000L, cpuPolicy.residency.coveredMs)
+            assertTrue(requireNotNull(report.events).events.any {
+                it.type == com.locutus5382.heimdall.engine.duko.DukoEventType.POLICY_CAP_OBSERVED
+            })
             val csv = ByteArrayOutputStream()
             SessionArchive(context, dbName).exportCsv(id, csv)
             val text = csv.toString("UTF-8")
