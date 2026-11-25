@@ -41,7 +41,8 @@ import com.locutus5382.heimdall.ui.SessionScreenViewModel
 /** Direct, evidence-first navigation. No old SessionHistoryPanel or inner accordion. */
 private enum class V2AnalysisSection(val label: String) {
     OVERVIEW("Overview"), MINUTES("Minutes"), CORES("Cores"),
-    POLICIES("Policies"), THERMALS("Thermals"), EVENTS("Events"), INSIGHTS("Insights")
+    CLOCKS("Clocks & caps"), THERMALS("Thermals"), PRESSURE("PSI / RAM"),
+    EVENTS("Events"), INSIGHTS("Insights")
 }
 
 @Composable
@@ -149,9 +150,13 @@ internal fun V2AnalyticsScreen(
                 ?: V2AnalysisSection.OVERVIEW) {
                 V2AnalysisSection.OVERVIEW -> V2Overview(report)
                 V2AnalysisSection.MINUTES -> V2Minutes(report)
-                V2AnalysisSection.CORES -> V2Cores(report)
-                V2AnalysisSection.POLICIES -> V2Policies(report)
-                V2AnalysisSection.THERMALS -> V2Thermals(report)
+                V2AnalysisSection.CORES -> V2CoreDashboard(report)
+                V2AnalysisSection.CLOCKS -> V2ClocksDashboard(report)
+                V2AnalysisSection.THERMALS -> {
+                    V2Thermals(report)
+                    V2ThermalExtras(report)
+                }
+                V2AnalysisSection.PRESSURE -> V2PressureDashboard(report)
                 V2AnalysisSection.EVENTS -> V2Events(report)
                 V2AnalysisSection.INSIGHTS -> V2Insights(report)
             }
@@ -381,13 +386,6 @@ private fun V2Thermals(report: DukoFoundationReport) {
         DukoMetric.GPU_TEMPERATURE).forEach { metric ->
         V2MetricEvidence(metric.name.replace('_', ' '),
             report.integrity.metrics[metric], "°C")
-    }
-    V2Surface {
-        Text("BATTERY ELECTRICAL EVIDENCE", color = V2Palette.cyan)
-        Text(formatV2Number(report.energy.measuredDischargeMWh) + " mWh",
-            color = V2Palette.text)
-        Text("Battery-terminal integration only; not calibrated game power.",
-            color = V2Palette.muted)
     }
 }
 
