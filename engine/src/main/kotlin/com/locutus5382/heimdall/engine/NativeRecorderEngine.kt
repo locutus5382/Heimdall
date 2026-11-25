@@ -33,6 +33,10 @@ class NativeRecorderEngine(
     private val maximumRetryDelayMs: Long = 2_000L,
     // Kept injectable for deterministic tests without Android or wall-clock sleeps.
     private val monotonicNowMs: () -> Long = { System.nanoTime() / 1_000_000L },
+    private val overhead: RecorderOverheadSink = NoopRecorderOverheadSink,
+    // Android may supply process-wide CPU ms. It is an upper bound during
+    // the tick window, including other threads, not isolated recorder CPU.
+    private val processCpuNowMs: () -> Long? = { null },
 ) {
     init {
         require(intervalMs >= 1_000L)
@@ -172,16 +176,46 @@ class NativeRecorderEngine(
                 // Only durable appended rows count; never silently synthesize
                 // a sample or replace an unfinished original session.
                 var successfulWrites = 0L
+                runCatching { overhead.begin(id, intervalMs) }
                 samplerJob = scope.launch {
                     var outageStartedMs: Long? = null
                     var nextRetryDelayMs = retryDelayMs
                     var nextTickMs = monotonicNowMs()
                     while (isActive) {
                         val tickStartMs = monotonicNowMs()
+                        val cpuAtStart = runCatching { processCpuNowMs() }.getOrNull()
+                        val lateMs = (tickStartMs - nextTickMs).coerceAtLeast(0L)
+                        var duringAppend = false
                         try {
                             val sample = source.read()
+                            val readDoneMs = monotonicNowMs()
+                            duringAppend = true
                             when (persistence.appendOutcome(id, sample)) {
                                 AppendOutcome.WRITTEN -> {
+                                    val writeDoneMs = monotonicNowMs()
+                                    val scheduled = nextTickMs + intervalMs
+                                    val skipped = if (writeDoneMs - scheduled > intervalMs)
+                                        ((writeDoneMs - scheduled) / intervalMs)
+                                            .coerceAtLeast(0L) else 0L
+                                    val cpuAtEnd = runCatching {
+                                        processCpuNowMs()
+                                    }.getOrNull()
+                                    // No disk logs, no per-tick report snapshots
+                                    // and no second sensor/database read.
+                                    runCatching {
+                                        overhead.tick(
+                                            sessionId = id,
+                                            readMs = (readDoneMs - tickStartMs).coerceAtLeast(0L),
+                                            appendMs = (writeDoneMs - readDoneMs).coerceAtLeast(0L),
+                                            totalMs = (writeDoneMs - tickStartMs).coerceAtLeast(0L),
+                                            deadlineLatenessMs = lateMs,
+                                            missedDeadlines = skipped,
+                                            processCpuDeltaMs =
+                                                if (cpuAtStart != null && cpuAtEnd != null &&
+                                                    cpuAtEnd >= cpuAtStart)
+                                                    cpuAtEnd - cpuAtStart else null,
+                                        )
+                                    }
                                     successfulWrites++
                                     outageStartedMs = null
                                     nextRetryDelayMs = retryDelayMs
@@ -206,6 +240,7 @@ class NativeRecorderEngine(
                         } catch (cancel: CancellationException) {
                             throw cancel
                         } catch (_: Exception) {
+                            runCatching { overhead.failedTick(id, duringAppend) }
                             // Count a slow failing read/write in the outage
                             // budget, not only the period after it throws.
                             val now = monotonicNowMs()
@@ -219,6 +254,7 @@ class NativeRecorderEngine(
                                         RecorderStatus.NeedsAttention(id, "SAMPLE_IO_FAILED")
                                     else current
                                 }
+                                runCatching { overhead.end(id) }
                                 break
                             }
                             delay(nextRetryDelayMs)
@@ -281,6 +317,7 @@ class NativeRecorderEngine(
         samplerJob = null
         if (!durable) {
             _status.value = RecorderStatus.NeedsAttention(id, "STOP_NOT_DURABLE")
+            runCatching { overhead.end(id) }
             return@withLock false
         }
         _status.value = RecorderStatus.Saving(id)
@@ -291,10 +328,12 @@ class NativeRecorderEngine(
         }
         if (!finished) {
             _status.value = RecorderStatus.NeedsAttention(id, "FINALIZATION_FAILED")
+            runCatching { overhead.end(id) }
             return@withLock false
         }
         val total = try { persistence.sampleCount(id) } catch (_: Exception) { 0L }
         _status.value = RecorderStatus.Finished(id, total)
+        runCatching { overhead.end(id) }
         true
     }
 
@@ -337,7 +376,9 @@ class NativeRecorderEngine(
         val joined = if (active == null) true else
             (withTimeoutOrNull(2_000L) { active.join(); true } ?: false)
         if (joined) samplerJob = null
-        if (id != null) _status.value =
-            RecorderStatus.NeedsAttention(id, "SERVICE_INTERRUPTED")
+        if (id != null) {
+            _status.value = RecorderStatus.NeedsAttention(id, "SERVICE_INTERRUPTED")
+            runCatching { overhead.end(id) }
+        }
     }
 }

@@ -121,6 +121,60 @@ class RuntimeDiagnostics(context: Context) {
         line("GPU temperature C", catalog.gpuTemperatureC())
         line("Battery rated Wh", "not provided by public API")
 
+        // M2.2/K: the observer records timings during EXISTING real samples.
+        // Read the bounded snapshot only on explicit Diagnostics inspection.
+        val overhead = RecorderOverheadHub.monitor.snapshot()
+        line("K / overhead trace", if (overhead == null)
+            "unavailable — record a session, then refresh Diagnostics"
+            else "local process; upper-bin quantiles, not exact percentiles")
+        if (overhead != null) {
+            fun latency(value: Long?): String = when (value) {
+                null -> "unavailable"
+                Long.MAX_VALUE -> ">30,000 ms"
+                else -> "≤" + value + " ms"
+            }
+            line("Recorder trace session", overhead.sessionId)
+            line("Recorder trace state", if (overhead.completed)
+                "closed (last observed session)" else "recording")
+            line("Recorder configured cadence ms", overhead.intervalMs)
+            line("Persisted ticks observed", overhead.ticks)
+            line("Sensor read failures observed", overhead.failedReads)
+            line("SQLite append failures observed", overhead.failedAppends)
+            line("Late tick starts observed", overhead.lateTicks)
+            line("Missed deadlines observed", overhead.missedDeadlines)
+            line("Read latency p50/p95 upper bins",
+                latency(overhead.readP50UpperMs) + " / " +
+                    latency(overhead.readP95UpperMs))
+            line("SQLite append p50/p95 upper bins",
+                latency(overhead.appendP50UpperMs) + " / " +
+                    latency(overhead.appendP95UpperMs))
+            line("End-to-end tick p50/p95 upper bins",
+                latency(overhead.totalP50UpperMs) + " / " +
+                    latency(overhead.totalP95UpperMs))
+            line("Longest single sensor read ms", overhead.maxReadMs)
+            line("Longest single SQLite append ms", overhead.maxAppendMs)
+            line("Longest end-to-end tick ms", overhead.maxTotalMs)
+            line("Maximum deadline lateness ms", overhead.maxDeadlineLatenessMs)
+            line("Process CPU consumed within observed tick windows ms",
+                overhead.processCpuWindowMs)
+            line("CPU attribution caveat",
+                "process CPU across all app threads during ticks; NOT " +
+                    "isolated recorder CPU, game CPU, or full recording CPU overhead")
+        }
+        // Expensive memory diagnostics are intentionally ON DEMAND, not in
+        // the 2-second sensor path or HUD frame render.
+        line("Heimdall process PSS KiB (on demand)",
+            runCatching { android.os.Debug.getPss() }.getOrNull())
+        line("Heimdall process native heap KiB (on demand)",
+            runCatching {
+                android.os.Debug.getNativeHeapAllocatedSize() / 1024L
+            }.getOrNull())
+        line("Process CPU time since launch ms",
+            runCatching { android.os.Process.getElapsedCpuTime() }.getOrNull())
+        line("Overhead measurement caveat",
+            "App PSS/CPU include UI, service, analysis and report rendering; " +
+                "compare controlled idle-vs-recording runs on Odin")
+
         val dbFile = app.getDatabasePath(HeimdallDatabase.NAME)
         line("SQLite database present", dbFile.isFile)
         if (dbFile.isFile) {

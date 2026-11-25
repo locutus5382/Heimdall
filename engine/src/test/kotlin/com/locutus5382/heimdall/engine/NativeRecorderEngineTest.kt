@@ -90,6 +90,70 @@ class NativeRecorderEngineTest {
         } finally { scope.cancel() }
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun actualEngineTickIsObservedWithoutSecondSensorRead() = runTest {
+        val monitor = RecorderOverheadMonitor()
+        val sensor = FakeSource()
+        val store = FakeStore()
+        val engine = NativeRecorderEngine(sensor, store, backgroundScope,
+            intervalMs = 2_000L,
+            monotonicNowMs = { testScheduler.currentTime },
+            overhead = monitor,
+            processCpuNowMs = { null })
+        assertTrue(engine.start())
+        runCurrent()
+        assertEquals(1, sensor.calls)
+        assertEquals(1L, store.writes)
+        val first = requireNotNull(monitor.snapshot())
+        assertEquals(1L, first.ticks)
+        assertEquals(0L, first.failedReads)
+        assertEquals(0L, first.failedAppends)
+        assertNull(first.processCpuWindowMs)
+        advanceTimeBy(2_000L)
+        runCurrent()
+        assertEquals(2, sensor.calls)
+        assertEquals(2L, store.writes)
+        assertEquals(2L, monitor.snapshot()!!.ticks)
+        assertTrue(engine.stop())
+        assertTrue(monitor.snapshot()!!.completed)
+        assertEquals(7L, monitor.snapshot()!!.sessionId)
+        assertEquals(2L, monitor.snapshot()!!.ticks)
+        assertEquals(1, store.finishes)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun overheadErrorsNeverTerminateRecorderOrHideDurableStop() = runTest {
+        val buggyObserver = object : RecorderOverheadSink {
+            var ticks = 0
+            override fun begin(sessionId: Long, intervalMs: Long) {
+                throw IllegalStateException("OBSERVER_UNAVAILABLE")
+            }
+            override fun tick(
+                sessionId: Long, readMs: Long, appendMs: Long, totalMs: Long,
+                deadlineLatenessMs: Long, missedDeadlines: Long,
+                processCpuDeltaMs: Long?,
+            ) {
+                ticks++
+                error("OBSERVER_UNAVAILABLE")
+            }
+            override fun end(sessionId: Long) {
+                error("OBSERVER_UNAVAILABLE")
+            }
+        }
+        val store = FakeStore()
+        val engine = NativeRecorderEngine(FakeSource(), store, backgroundScope,
+            intervalMs = 2_000L,
+            monotonicNowMs = { testScheduler.currentTime },
+            overhead = buggyObserver)
+        assertTrue(engine.start())
+        runCurrent()
+        assertEquals(1, buggyObserver.ticks)
+        assertEquals(1L, store.writes)
+        assertTrue(engine.stop())
+        assertNull(store.active)
+        assertEquals(1, store.finishes)
+    }
+
     @Test fun unresolvedOriginalSessionBlocksReplacementStart() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
