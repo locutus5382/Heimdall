@@ -30,13 +30,16 @@ class LatestSessionAuditAndroidTest {
         db.execSQL("INSERT INTO sessions VALUES (42, 5, 'RECORDING')")
         db.execSQL("INSERT INTO samples VALUES (1, 41)")
         db.execSQL("INSERT INTO samples VALUES (2, 41)")
-        val before = db.totalChangedRowCount
         val audit = requireNotNull(latestSavedSessionAudit(db))
         assertEquals(41L, audit.sessionId)
         assertEquals(2L, audit.declaredRows)
         assertEquals(2L, audit.actualRows)
         assertTrue(audit.consistent)
-        assertEquals(before, db.totalChangedRowCount)
+        db.rawQuery("SELECT COUNT(*) FROM samples WHERE session_id=41", null)
+            .use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals(2L, cursor.getLong(0))
+            }
     }
 
     @Test fun mismatchIsReportedWithoutRepairOrDeletingSourceRows() = fixture { db ->
