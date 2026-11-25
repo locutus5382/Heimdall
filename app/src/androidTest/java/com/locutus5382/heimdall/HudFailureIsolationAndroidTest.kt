@@ -1,6 +1,7 @@
 package com.locutus5382.heimdall
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.coroutines.CancellationException
 import com.locutus5382.heimdall.engine.RecorderStatus
 import com.locutus5382.heimdall.recording.rollbackHudWindow
 import com.locutus5382.heimdall.recording.safelyDeliverHud
@@ -60,6 +61,22 @@ class HudFailureIsolationAndroidTest {
             assertFalse(result)
         }
         assertEquals(listOf("remove", "log", "remove", "log"), failures)
+    }
+
+    @Test fun coroutineCancellationIsNeverSwallowedAsAHudFailure() {
+        var releaseCount = 0
+        var reportCount = 0
+        try {
+            safelyDeliverHud(
+                render = { throw CancellationException("Service ending") },
+                release = { releaseCount++ },
+                report = { reportCount++ },
+            )
+            fail("Coroutine cancellation must propagate")
+        } catch (_: CancellationException) {
+            assertEquals(0, releaseCount)
+            assertEquals(0, reportCount)
+        }
     }
 
     @Test fun rollbackAttemptsRemovalEvenBeforeViewSignalsAttached() {
