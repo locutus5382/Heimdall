@@ -119,8 +119,26 @@ internal class SessionScreenViewModel(private val repo: SessionScreenDataSource)
      */
     fun focusSession(id: Long) {
         if (id <= 0L) return
-        requestedFocusId = id
-        refresh(id, force = true)
+        if (!mutable.value.loadingHistory && mutable.value.history.any { it.id == id }) {
+            // Reusing the existing bounded archive avoids an unnecessary
+            // SQLite refresh on every RUNS -> ANALYZE selection.
+            requestedFocusId = null
+            openDetails(id)
+        } else {
+            requestedFocusId = id
+            refresh(id, force = true)
+        }
+    }
+
+    /**
+     * Entering ANALYZE with no chosen run should open the most recent one,
+     * but must NEVER override an explicit RUNS selection still loading.
+     */
+    fun focusNewestIfNone() {
+        val state = mutable.value
+        if (requestedFocusId != null || state.loadingHistory ||
+            state.expandedId != null) return
+        state.history.firstOrNull()?.let { openDetails(it.id) }
     }
 
     /** Manual reload for sessions saved by the HUD/Quick Settings while open. */
