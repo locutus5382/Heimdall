@@ -273,6 +273,10 @@ class HeimdallRecorderService : Service() {
             else -> null
         }
         if (interrupted != null) {
+            // onDestroy cancels the engine scope immediately and deliberately
+            // cannot join it on Main. Freeze diagnostic timings locally; the
+            // SQLite row still belongs to the existing interrupted recovery.
+            runCatching { RecorderOverheadHub.monitor.end(interrupted) }
             RecorderStatusHub.publish(
                 RecorderStatus.NeedsAttention(interrupted, "SERVICE_INTERRUPTED")
             )
