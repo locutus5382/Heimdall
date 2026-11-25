@@ -1,22 +1,38 @@
 package com.locutus5382.heimdall.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.locutus5382.heimdall.engine.duko.DukoEvidence
 import com.locutus5382.heimdall.engine.duko.DukoWindow
+import com.locutus5382.heimdall.engine.duko.DukoWorkloadPhase
 import com.locutus5382.heimdall.recording.DukoFoundationReport
 import com.locutus5382.heimdall.ui.theme.BifrostColors
 import java.util.Locale
+
+private fun phaseColor(phase: DukoWorkloadPhase): Color = when (phase) {
+    DukoWorkloadPhase.IDLE -> BifrostColors.Muted
+    DukoWorkloadPhase.ACTIVE -> BifrostColors.Signal
+    DukoWorkloadPhase.SUSTAINED_LOAD -> BifrostColors.Coral
+    DukoWorkloadPhase.RECOVERY -> BifrostColors.Amber
+    DukoWorkloadPhase.UNKNOWN -> Color.DarkGray
+}
 
 private fun offset(base: DukoWindow, elapsedMs: Long): String {
     val totalSeconds = ((elapsedMs - base.startMs).coerceAtLeast(0L)) / 1000L
@@ -37,6 +53,31 @@ internal fun DukoM19InsightsPanel(report: DukoFoundationReport) {
         Text("60-second heuristic classification. UNKNOWN means the data does not " +
             "justify an idle or active label; recovery means reduced observed load, " +
             "not verified cooling.", fontSize = 11.sp, color = BifrostColors.Muted)
+        Text("PHASE TIMELINE · idle / active / sustained / recovery / unknown",
+            color = BifrostColors.Muted, fontSize = 10.sp)
+        Canvas(
+            modifier = Modifier.fillMaxWidth().height(18.dp)
+                .semantics { contentDescription = "Observed workload phase timeline" }
+        ) {
+            val duration = report.window.durationMs.toDouble()
+            insights.workload.segments.forEach { segment ->
+                val start = ((segment.window.startMs - report.window.startMs) /
+                    duration).coerceIn(0.0, 1.0).toFloat()
+                val end = ((segment.window.endMs - report.window.startMs) /
+                    duration).coerceIn(0.0, 1.0).toFloat()
+                val left = start * size.width
+                val right = end * size.width
+                if (right > left) {
+                    drawRect(
+                        color = phaseColor(segment.phase).copy(
+                            alpha = if (segment.evidence == DukoEvidence.INSUFFICIENT)
+                                0.65f else 1.0f),
+                        topLeft = Offset(left, 0f),
+                        size = Size(right - left, size.height),
+                    )
+                }
+            }
+        }
         if (insights.workload.truncated) {
             Text("Only the first 360 minutes were classified; select a later " +
                 "analysis window to inspect the rest.", fontSize = 11.sp,
