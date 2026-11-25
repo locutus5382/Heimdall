@@ -204,7 +204,11 @@ class SessionArchive(
     }
 
     /** A user-selected SAF destination; never uploads or overwrites source rows. */
-    suspend fun exportCsv(sessionId: Long, destination: OutputStream): Long =
+    suspend fun exportCsv(
+        sessionId: Long,
+        destination: OutputStream,
+        selectedWindow: DukoWindow? = null,
+    ): Long =
         withContext(Dispatchers.IO) {
             require(sessionId > 0L)
             check(path.isFile) { "NO_DATABASE" }
@@ -214,6 +218,33 @@ class SessionArchive(
                         arrayOf(sessionId.toString())
                     ).use { c -> c.moveToFirst() }
                     check(complete) { "SESSION_NOT_COMPLETED" }
+                    if (selectedWindow != null) {
+                        val bounds = database.rawQuery(
+                            """SELECT MIN(elapsed_ms),MAX(elapsed_ms) FROM samples
+                               WHERE session_id=? AND elapsed_ms>=0""",
+                            arrayOf(sessionId.toString())
+                        ).use {
+                            if (!it.moveToFirst() || it.isNull(0) || it.isNull(1))
+                                null else it.getLong(0) to it.getLong(1)
+                        }
+                        require(bounds != null &&
+                            selectedWindow.startMs >= bounds.first &&
+                            selectedWindow.endMs <= bounds.second) {
+                            "SELECTED_WINDOW_OUTSIDE_RECORDING"
+                        }
+                    }
+                    // Keep original sample IDs and both clocks, including when
+                    // a user selects a short window in the middle of a run.
+                    val table = if (selectedWindow == null) "samples" else
+                        "samples INDEXED BY samples_session_elapsed_idx"
+                    val where = if (selectedWindow == null) "" else
+                        " AND elapsed_ms>=? AND elapsed_ms<=?"
+                    val args = if (selectedWindow == null)
+                        arrayOf(sessionId.toString()) else arrayOf(
+                            sessionId.toString(),
+                            selectedWindow.startMs.toString(),
+                            selectedWindow.endMs.toString()
+                        )
                     var written = 0L
                     destination.bufferedWriter(StandardCharsets.UTF_8).use { writer ->
                         writer.write(
@@ -239,14 +270,25 @@ class SessionArchive(
                                    thermal_headroom_observed_elapsed_ms,
                                    cpu_core_load_pct,psi_cpu_some_avg10,
                                    psi_memory_some_avg10,psi_memory_full_avg10
-                            FROM samples WHERE session_id=? ORDER BY id
+                            FROM $table WHERE session_id=?$where ORDER BY id
                             """.trimIndent(),
-                            arrayOf(sessionId.toString())
+                            args
                         ).use { c ->
                             while (c.moveToNext()) {
                                 for (i in 0 until c.columnCount) {
                                     if (i > 0) writer.write(",")
-                                    if (!c.isNull(i)) writer.write(c.getString(i))
+                                    if (!c.isNull(i)) {
+                                        val cell = c.getString(i)
+                                        // Text columns such as policy maps may
+                                        // contain commas, quotes or line breaks.
+                                        // Quote as RFC4180 instead of shifting CSV columns.
+                                        if (cell.any { it == ',' || it == '"' ||
+                                                it == '\n' || it == '\r' }) {
+                                            writer.write("\"")
+                                            writer.write(cell.replace("\"", "\"\""))
+                                            writer.write("\"")
+                                        } else writer.write(cell)
+                                    }
                                 }
                                 writer.write("\n")
                                 written++

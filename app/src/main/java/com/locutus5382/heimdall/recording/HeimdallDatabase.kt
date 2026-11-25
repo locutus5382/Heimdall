@@ -11,8 +11,8 @@ import android.database.sqlite.SQLiteOpenHelper
  */
 internal object HeimdallDatabase {
     const val NAME = "heimdall_v1.db"
-    // v7 adds nullable per-core/PSI telemetry; historical rows remain intact.
-    private const val VERSION = 7
+    // v8 adds an independent annotation table; original sample rows stay untouched.
+    private const val VERSION = 8
     private val instances = mutableMapOf<String, SQLiteOpenHelper>()
 
     @Synchronized
@@ -93,12 +93,14 @@ internal object HeimdallDatabase {
                     )
                     db.execSQL("CREATE INDEX sessions_state_idx ON sessions(status,id)")
                     createDukoTables(db)
+                    createMarkerTable(db)
                 }
 
                 override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-                    require(oldVersion in 1..6 && newVersion == 7) {
+                    require(oldVersion in 1..7 && newVersion == 8) {
                         "UNSUPPORTED_MIGRATION_${oldVersion}_${newVersion}"
                     }
+                    if (oldVersion <= 6) {
                     if (oldVersion == 1) {
                         db.execSQL("ALTER TABLE sessions ADD COLUMN stop_requested_at_ms INTEGER")
                         db.execSQL("CREATE INDEX sessions_state_idx ON sessions(status,id)")
@@ -183,9 +185,29 @@ internal object HeimdallDatabase {
                         "psi_memory_some_avg10 REAL",
                         "psi_memory_full_avg10 REAL"
                     ).forEach { db.execSQL("ALTER TABLE samples ADD COLUMN $it") }
+                    }
+                    // v8: additive annotations, no changes to historical samples.
+                    createMarkerTable(db)
                 }
             }
         }
+    }
+
+    private fun createMarkerTable(db: SQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS duko_session_markers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL
+                    REFERENCES sessions(id) ON DELETE CASCADE,
+                elapsed_ms INTEGER NOT NULL CHECK(elapsed_ms >= 0),
+                label TEXT NOT NULL CHECK(length(label) BETWEEN 1 AND 120),
+                created_at_ms INTEGER NOT NULL
+            )
+        """.trimIndent())
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS duko_markers_session_time_idx " +
+                "ON duko_session_markers(session_id,elapsed_ms,id)"
+        )
     }
 
     private fun createDukoTables(db: SQLiteDatabase) {

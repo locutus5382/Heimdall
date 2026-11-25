@@ -72,6 +72,8 @@ fun BifrostDashboard(
     onSessions: () -> Unit,
     onDiagnostics: () -> Unit,
     onReviewSession: ((Long) -> Unit)? = null,
+    onMarkRecording: ((Long) -> Unit)? = null,
+    markerNotice: String? = null,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= 680.dp
@@ -142,6 +144,17 @@ fun BifrostDashboard(
                 MetricsGrid(last, false, telemetryPage)
             }
 
+            if (recording != null && onMarkRecording != null) {
+                OutlinedButton(
+                    onClick = { onMarkRecording(recording.sessionId) },
+                    enabled = !commandPending,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                ) { Text("ADD LIVE SESSION MARKER") }
+                Text("Marks the actual tap time in the recorder's monotonic " +
+                    "clock. Rename it later in Sessions → DUKO.",
+                    color = BifrostColors.Muted, fontSize = 11.sp)
+                markerNotice?.let { Text(it, color = BifrostColors.Amber) }
+            }
             if (status is RecorderStatus.Finished) {
                 OutlinedButton(
                     onClick = {
