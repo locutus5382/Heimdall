@@ -28,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -55,6 +56,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var dashboardModel: DashboardViewModel
     private lateinit var sessionsModel: SessionScreenViewModel
     private lateinit var compareModel: CompareScreenViewModel
+    private lateinit var multiRunModel: DukoMultiRunViewModel
     private lateinit var diagnosticsModel: DiagnosticsViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -68,6 +70,9 @@ class MainActivity : ComponentActivity() {
         compareModel = ViewModelProvider(this,
             CompareScreenViewModel.Factory(ComparisonRepository(this)))
             .get(CompareScreenViewModel::class.java)
+        multiRunModel = ViewModelProvider(this,
+            DukoMultiRunViewModel.Factory(MultiRunRepository(this)))
+            .get(DukoMultiRunViewModel::class.java)
         diagnosticsModel = ViewModelProvider(this,
             DiagnosticsViewModel.Factory(AndroidDiagnosticsRepository(this)))
             .get(DiagnosticsViewModel::class.java)
@@ -151,7 +156,7 @@ class MainActivity : ComponentActivity() {
                             openTab(BifrostTab.COMPARE)
                         }
                     },
-                    compare = { BifrostCompareScreen(refreshKey, compareModel) },
+                    compare = { BifrostCompareScreen(refreshKey, compareModel, multiRunModel) },
                     bladeContent = { blade, _, openTab ->
                         when (blade) {
                             // Dashboard SETUP always configures the NEXT session.
@@ -205,30 +210,53 @@ private fun BifrostSessionsScreen(
     }
 }
 
-/** A/B state and historical list are owned by the Activity's Compare ViewModel. */
+/** One Compare destination, independently owned A/B and multi-run state. */
 @Composable
-private fun BifrostCompareScreen(refreshKey: Long, model: CompareScreenViewModel) {
+private fun BifrostCompareScreen(
+    refreshKey: Long,
+    model: CompareScreenViewModel,
+    multi: DukoMultiRunViewModel,
+) {
     val state by model.ui.collectAsStateWithLifecycle()
-    LaunchedEffect(refreshKey) { model.refresh(refreshKey) }
+    var multiMode by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(refreshKey) {
+        model.refresh(refreshKey)
+        multi.refresh(refreshKey)
+    }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(horizontal = 16.dp, vertical = 18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("COMPARE  /  DUKO A–B", color = BifrostColors.Signal)
-        Text("Select two real recordings. Results describe device telemetry, not FPS.",
+        Text("COMPARE / DUKO", color = BifrostColors.Signal)
+        Text("Device telemetry, not FPS: compare two runs or inspect " +
+            "baseline-versus-candidate evidence across 2-6 runs.",
             color = BifrostColors.Muted)
-        OutlinedButton(
-            onClick = model::reload,
-            enabled = !state.loading && !state.writing && state.pendingExport == null,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("REFRESH SAVED RUNS")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = { multiMode = false },
+                modifier = Modifier.weight(1f)
+            ) { Text(if (multiMode) "A/B COMPARISON" else "● A/B COMPARISON") }
+            OutlinedButton(
+                onClick = { multiMode = true },
+                modifier = Modifier.weight(1f)
+            ) { Text(if (multiMode) "● MULTI RUN" else "MULTI RUN") }
         }
-        if (state.loading) Text("Loading saved runs…", color = BifrostColors.Muted)
-        if (state.issue != null) Text(state.issue.orEmpty(), color = BifrostColors.Coral)
-        if (state.sessions.size < 2) {
-            Text("Record at least two sessions to compare.", color = BifrostColors.Muted)
+        if (multiMode) {
+            DukoM21MultiRunPanel(multi)
         } else {
-            DukoComparisonPanel(model)
+            OutlinedButton(
+                onClick = model::reload,
+                enabled = !state.loading && !state.writing &&
+                    state.pendingExport == null && state.pendingVisual == null &&
+                    !state.visualWriting,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("REFRESH SAVED RUNS") }
+            if (state.loading) Text("Loading saved runs…", color = BifrostColors.Muted)
+            if (state.issue != null) Text(state.issue.orEmpty(),
+                color = BifrostColors.Coral)
+            if (state.sessions.size < 2) {
+                Text("Record at least two sessions to compare.",
+                    color = BifrostColors.Muted)
+            } else DukoComparisonPanel(model)
         }
     }
 }

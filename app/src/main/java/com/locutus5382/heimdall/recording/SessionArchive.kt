@@ -7,6 +7,8 @@ import com.locutus5382.heimdall.engine.duko.DukoWindow
 import com.locutus5382.heimdall.engine.duko.DukoComparison
 import com.locutus5382.heimdall.engine.duko.DukoComparisonInput
 import com.locutus5382.heimdall.engine.duko.DukoComparisonReport
+import com.locutus5382.heimdall.engine.duko.DukoMultiRun
+import com.locutus5382.heimdall.engine.duko.DukoMultiRunReport
 import com.locutus5382.heimdall.engine.duko.DukoSessionOutcome
 import com.locutus5382.heimdall.engine.SessionStatistics
 import kotlinx.coroutines.Dispatchers
@@ -201,6 +203,39 @@ class SessionArchive(
                 metrics = b.integrity.metrics,
             ),
         )
+    }
+
+    /**
+     * M2.1 multi-run comparisons are strictly read-only and bounded:
+     * 2-6 distinct completed recordings, each with its OWN exact monotonic
+     * selection. Source measurements are analyzed independently, then
+     * released after assembling small immutable evidence summaries.
+     */
+    suspend fun dukoMultiRun(
+        selections: List<Pair<Long, DukoWindow>>,
+    ): DukoMultiRunReport? = withContext(Dispatchers.IO) {
+        require(selections.size in DukoMultiRun.MIN_RUNS..DukoMultiRun.MAX_RUNS) {
+            "TWO_TO_SIX_RUNS_REQUIRED"
+        }
+        val ids = selections.map { it.first }
+        require(ids.all { it > 0L } && ids.toSet().size == ids.size) {
+            "DISTINCT_VALID_SESSIONS_REQUIRED"
+        }
+        val analyzer = DukoSessionAnalyzer(app, databaseName)
+        val contexts = DukoSessionContextStore(app, databaseName)
+        val inputs = ArrayList<DukoComparisonInput>(selections.size)
+        for ((sessionId, window) in selections) {
+            val report = analyzer.analyze(sessionId, window)
+                ?: return@withContext null
+            inputs += DukoComparisonInput(
+                sessionId = sessionId,
+                window = report.window,
+                outcome = report.integrity.outcome,
+                context = contexts.get(sessionId),
+                metrics = report.integrity.metrics,
+            )
+        }
+        DukoMultiRun.compare(inputs)
     }
 
     /** A user-selected SAF destination; never uploads or overwrites source rows. */

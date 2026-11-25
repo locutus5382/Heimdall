@@ -203,14 +203,26 @@ internal fun DukoComparisonPanel(model: CompareScreenViewModel) {
                 Text("DUKO REPORT · comparison-only · saved locally", color = AbAmber)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
-                        enabled = state.pendingExport == null && !state.writing,
+                        enabled = state.pendingExport == null && !state.writing &&
+                            state.pendingVisual == null && !state.visualWriting,
                         onClick = { model.prepareExport(ComparisonExport.TXT)?.let(textPicker::launch) }
                     ) { Text("SAVE TXT") }
                     OutlinedButton(
-                        enabled = state.pendingExport == null && !state.writing,
+                        enabled = state.pendingExport == null && !state.writing &&
+                            state.pendingVisual == null && !state.visualWriting,
                         onClick = { model.prepareExport(ComparisonExport.CSV)?.let(csvPicker::launch) }
                     ) { Text("SAVE CSV") }
                 }
+                DukoM21VisualControls(
+                    allowed = state.pendingExport == null && !state.writing &&
+                        state.pendingVisual == null && !state.visualWriting,
+                    onPrepare = model::prepareVisual,
+                    onResult = model::onVisualResult,
+                    status = state.visualStatus,
+                )
+                Text("PDF/PNG use the same frozen A/B evidence as TXT/CSV. " +
+                    "They are not single-session reports.",
+                    color = AbSubtle, fontSize = 10.sp)
             }
             result.contextWarnings.forEach {
                 Text(it.replace('_', ' '), color = AbSubtle)
