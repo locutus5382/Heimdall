@@ -184,7 +184,7 @@ internal class DukoSessionAnalyzer(
                 "MEMORY PSI FULL AVG10" to "%",
             )
             val timelines = timelineSpecs.mapValues { (label, unit) ->
-                TimedSignalAccumulator(label, unit, window)
+                TimedSignalAccumulator(label, unit, window, expectedCadenceMs = cadence)
             }
             val coreTimelines = mutableMapOf<Int, TimedSignalAccumulator>()
             fun policyMap(raw: String?): Map<String, Long> =
@@ -258,7 +258,8 @@ internal class DukoSessionAnalyzer(
                     coreActivity.accept(t, coreLoads)
                     coreLoads.forEach { (id, load) ->
                         coreTimelines.getOrPut(id) {
-                            TimedSignalAccumulator("CPU CORE $id", "%", window)
+                            TimedSignalAccumulator("CPU CORE $id", "%", window,
+                                expectedCadenceMs = cadence)
                         }.accept(t, load)
                     }
                     frequencyCaps.accept(t,
