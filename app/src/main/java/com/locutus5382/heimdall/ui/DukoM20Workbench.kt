@@ -309,14 +309,20 @@ internal fun DukoLayeredSignals(
         val pad = max(0.5, (high - low) * 0.08)
         val span = max(0.1, high - low + pad * 2)
         val window = report.window
-        val events = report.events?.events.orEmpty().filter { it.heuristic }
+        val events = report.events?.events.orEmpty().filter {
+            it.type !in setOf(
+                DukoEventType.RECORDING_BEGIN, DukoEventType.RECORDING_COMPLETE,
+                DukoEventType.RECORDING_INTERRUPTED,
+                DukoEventType.ANALYSIS_WINDOW_BEGIN,
+                DukoEventType.ANALYSIS_WINDOW_END)
+        }
         val shownMarkers = markers.filter { it.elapsedMs in window.startMs..window.endMs }
         Canvas(
             modifier = Modifier.fillMaxWidth().height(190.dp)
                 .background(BifrostColors.Midnight, RoundedCornerShape(12.dp))
                 .semantics {
                     contentDescription = "Measured layered signal graph with " +
-                        events.size + " heuristic events and " +
+                        events.size + " observed telemetry events and " +
                         shownMarkers.size + " user annotations"
                 }
         ) {
@@ -339,20 +345,30 @@ internal fun DukoLayeredSignals(
                         drawLine(color, Offset(x(a.elapsedMs), y(a.value)),
                             Offset(x(b.elapsedMs), y(b.value)), 2.dp.toPx())
                 }
-                trace.trace.singleOrNull()?.let {
-                    drawCircle(color, 3.dp.toPx(), Offset(x(it.elapsedMs), y(it.value)))
+                // Individual bucket observations are also drawn as dots. A
+                // 2–4 second selected interval might contain two isolated
+                // buckets without an eligible connecting line.
+                trace.trace.forEach { point ->
+                    drawCircle(color.copy(alpha = 0.85f),
+                        2.dp.toPx(), Offset(x(point.elapsedMs), y(point.value)))
                 }
             }
-            events.take(250).forEach {
-                drawCircle(BifrostColors.Coral, 2.dp.toPx(), Offset(x(it.startMs), y1))
+            events.take(250).forEach { event ->
+                val cap = event.type in setOf(
+                    DukoEventType.POLICY_CAP_OBSERVED,
+                    DukoEventType.POLICY_CAP_CLEARED)
+                drawCircle(
+                    if (cap) BifrostColors.Signal else BifrostColors.Coral,
+                    2.7.dp.toPx(), Offset(x(event.startMs), y1))
             }
             shownMarkers.take(200).forEach {
                 drawLine(BifrostColors.Amber, Offset(x(it.elapsedMs), y0),
                     Offset(x(it.elapsedMs), y0 + 11.dp.toPx()), 2.dp.toPx())
             }
         }
-        Text("Amber ticks = manual markers; coral dots = heuristic event starts. " +
-            "Only same-unit streams share a graph. Missing intervals are disconnected.",
+        Text("Amber ticks: manual markers · coral dots: diagnostic thresholds · " +
+            "cyan dots: CPU policy cap transitions. Gaps remain unconnected; " +
+            "event proximity does not prove cause.",
             fontSize = 10.sp, color = BifrostColors.Muted)
     }
 }
