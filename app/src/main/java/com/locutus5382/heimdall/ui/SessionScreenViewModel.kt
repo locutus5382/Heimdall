@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.locutus5382.heimdall.engine.duko.DukoFrequencyCapAssessment
+import com.locutus5382.heimdall.engine.duko.DukoWindow
 import com.locutus5382.heimdall.recording.DukoDeviceCapture
 import com.locutus5382.heimdall.recording.DukoFoundationReport
 import com.locutus5382.heimdall.recording.DukoSessionContextStore
@@ -26,6 +27,9 @@ internal interface SessionScreenDataSource {
     suspend fun recent(limit: Int): List<SavedSession> = recent()
     suspend fun details(id: Long): SessionDetail
     suspend fun exportCsv(id: Long, uri: Uri): Long
+    suspend fun analyzeWindow(id: Long, window: DukoWindow): DukoFoundationReport? = null
+    suspend fun exportCsvWindow(id: Long, uri: Uri, window: DukoWindow): Long =
+        error("SELECTED_CSV_NOT_SUPPORTED")
 }
 
 /** Android IO is delegated to SessionArchive, which switches to Dispatchers.IO. */
@@ -44,6 +48,16 @@ internal class SessionScreenRepository(context: Context) : SessionScreenDataSour
         }.getOrNull()
         return SessionDetail(overview, report, cap)
     }
+    override suspend fun analyzeWindow(id: Long, window: DukoWindow): DukoFoundationReport? =
+        archive.dukoFoundation(id, window)
+
+    override suspend fun exportCsvWindow(id: Long, uri: Uri, window: DukoWindow): Long =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val stream = app.contentResolver.openOutputStream(uri, "wt")
+                ?: throw java.io.IOException("DOCUMENT_PROVIDER_REFUSED_WRITE")
+            archive.exportCsv(id, stream, window)
+        }
+
     override suspend fun exportCsv(id: Long, uri: Uri): Long =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             // Provider open can block too; do not perform any SAF operations on Main.
@@ -66,7 +80,11 @@ internal data class SessionsUiState(
     val reading: Boolean = false,
     val notice: String? = null,
     val pendingExportId: Long? = null,
+    val pendingExportWindow: DukoWindow? = null,
     val exporting: Boolean = false,
+    val selectedAnalysis: DukoFoundationReport? = null,
+    val analysisWindow: DukoWindow? = null,
+    val readingSelection: Boolean = false,
 )
 
 /**
@@ -79,6 +97,8 @@ internal class SessionScreenViewModel(private val repo: SessionScreenDataSource)
     private var loaded = false
     private var refreshKey: Long? = null
     private var detailJob: Job? = null
+    private var selectionJob: Job? = null
+    private var selectionGeneration = 0L
     private var loadJob: Job? = null
     private var generation = 0L
     private var requestedFocusId: Long? = null
@@ -125,6 +145,9 @@ internal class SessionScreenViewModel(private val repo: SessionScreenDataSource)
                         hasMoreHistory = hasNext,
                         expandedId = stillExpanded,
                         detail = if (stillExpanded != null) old.detail else null,
+                        selectedAnalysis = if (stillExpanded != null) old.selectedAnalysis else null,
+                        analysisWindow = if (stillExpanded != null) old.analysisWindow else null,
+                        readingSelection = if (stillExpanded != null) old.readingSelection else false,
                         notice = null)
                 }
                 val focused = requestedFocusId
@@ -151,7 +174,10 @@ internal class SessionScreenViewModel(private val repo: SessionScreenDataSource)
         if (mutable.value.expandedId == id) {
             generation++
             detailJob?.cancel()
-            mutable.update { it.copy(expandedId = null, detail = null, reading = false) }
+            selectionGeneration++
+            selectionJob?.cancel()
+            mutable.update { it.copy(expandedId = null, detail = null, reading = false,
+                selectedAnalysis = null, analysisWindow = null, readingSelection = false) }
         } else openDetails(id)
     }
 
@@ -160,7 +186,11 @@ internal class SessionScreenViewModel(private val repo: SessionScreenDataSource)
         generation++
         val request = generation
         detailJob?.cancel()
-        mutable.update { it.copy(expandedId = id, detail = null, reading = true, notice = null) }
+        selectionGeneration++
+        selectionJob?.cancel()
+        mutable.update { it.copy(expandedId = id, detail = null, reading = true,
+            selectedAnalysis = null, analysisWindow = null,
+            readingSelection = false, notice = null) }
         detailJob = viewModelScope.launch {
             try {
                 val item = repo.details(id)
@@ -176,17 +206,73 @@ internal class SessionScreenViewModel(private val repo: SessionScreenDataSource)
         }
     }
 
+    /**
+     * Run the same bounded SQLite analytics over an explicitly selected
+     * monotonic interval. Generation + session ownership prevent a stale
+     * coroutine from publishing to another expanded recording.
+     */
+    fun selectAnalysisWindow(id: Long, window: DukoWindow?) {
+        val state = mutable.value
+        val full = state.detail?.duko?.window ?: return
+        if (state.expandedId != id || state.exporting) return
+        selectionGeneration++
+        selectionJob?.cancel()
+        if (window == null || window == full) {
+            mutable.update { it.copy(analysisWindow = null,
+                selectedAnalysis = null, readingSelection = false) }
+            return
+        }
+        if (window.startMs < full.startMs || window.endMs > full.endMs) {
+            mutable.update { it.copy(notice = "Analysis range lies outside saved evidence.") }
+            return
+        }
+        val request = selectionGeneration
+        val ownerGeneration = generation
+        mutable.update { it.copy(analysisWindow = window,
+            selectedAnalysis = null, readingSelection = true, notice = null) }
+        selectionJob = viewModelScope.launch {
+            try {
+                val result = repo.analyzeWindow(id, window)
+                if (generation == ownerGeneration && selectionGeneration == request &&
+                    mutable.value.expandedId == id) {
+                    mutable.update {
+                        it.copy(selectedAnalysis = result, readingSelection = false,
+                            notice = if (result == null)
+                                "Selected interval lacks usable monotonic evidence."
+                                else null)
+                    }
+                }
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (e: Exception) {
+                if (generation == ownerGeneration && selectionGeneration == request &&
+                    mutable.value.expandedId == id) mutable.update {
+                    it.copy(readingSelection = false,
+                        notice = "Range analysis failed: ${e.javaClass.simpleName}")
+                }
+            }
+        }
+    }
+
     /** Returns whether a new SAF picker should open. No second export in flight. */
-    fun requestExport(id: Long): Boolean {
+    fun requestExport(id: Long, selectedOnly: Boolean = false): Boolean {
         if (mutable.value.pendingExportId != null || mutable.value.exporting ||
             mutable.value.history.none { it.id == id }) return false
-        mutable.update { it.copy(pendingExportId = id, notice = null) }
+        val window = if (selectedOnly) {
+            val state = mutable.value
+            if (state.expandedId != id || state.readingSelection ||
+                state.selectedAnalysis?.window != state.analysisWindow ||
+                state.selectedAnalysis == null) return false
+            state.analysisWindow ?: return false
+        } else null
+        mutable.update { it.copy(pendingExportId = id,
+            pendingExportWindow = window, notice = null) }
         return true
     }
 
     fun onExportResult(destination: Uri?) {
         val id = mutable.value.pendingExportId
-        mutable.update { it.copy(pendingExportId = null) }
+        val snapshotWindow = mutable.value.pendingExportWindow
+        mutable.update { it.copy(pendingExportId = null, pendingExportWindow = null) }
         if (destination == null) {
             mutable.update { it.copy(notice = if (id == null)
                 "Export request expired; select a session again." else "CSV export cancelled.") }
@@ -201,8 +287,10 @@ internal class SessionScreenViewModel(private val repo: SessionScreenDataSource)
         mutable.update { it.copy(exporting = true, notice = "Exporting CSV…") }
         viewModelScope.launch {
             try {
-                val count = repo.exportCsv(id, destination)
-                mutable.update { it.copy(notice = "Session #$id exported: $count samples.") }
+                val count = if (snapshotWindow == null) repo.exportCsv(id, destination)
+                    else repo.exportCsvWindow(id, destination, snapshotWindow)
+                mutable.update { it.copy(notice = "Session #$id exported: $count original samples" +
+                    if (snapshotWindow == null) "." else " from selected range.") }
             } catch (cancel: CancellationException) { throw cancel }
             catch (e: Exception) {
                 mutable.update { it.copy(notice = "CSV export failed: ${e.javaClass.simpleName}") }
