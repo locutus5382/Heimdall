@@ -2,6 +2,7 @@ package com.locutus5382.heimdall.ui.v2
 
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -19,21 +20,20 @@ class BifrostV2NavigationAndroidTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
 
     @Test fun recorderControlsAndAnalyticsHaveDirectPaths() {
-        compose.onNodeWithText("Observation").assertExists()
+        compose.onNodeWithText("Overview").assertExists()
         compose.onNodeWithText("START").assertExists()
         compose.onNodeWithText("STOP & SAVE").assertExists()
-        compose.onNodeWithText("DUKO ANALYTICS").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Navigate to Analyze").performClick()
         compose.onNodeWithText("Analysis").assertExists()
         compose.onNodeWithText("DUKO / RECORDED EVIDENCE").assertExists()
         compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
-        compose.onNodeWithText("Observation").assertExists()
+        compose.onNodeWithText("Overview").assertExists()
     }
 
     @Test fun setupGoesToIndependentToolsRatherThanOldHudStudio() {
-        compose.onNodeWithText("SETUP").performScrollTo().performClick()
-        compose.onNodeWithText("Tools").assertExists()
+        compose.onNodeWithContentDescription("Navigate to Tools").performClick()
+        compose.onNodeWithText("LOCAL DEVICE UTILITIES").assertExists()
         compose.onNodeWithText("RUN DIAGNOSTICS").assertExists()
-        compose.onNodeWithText("HUD 2.0  /  REBUILD IN PROGRESS")
-            .performScrollTo().assertExists()
+        compose.onNodeWithText("HUD 2.0  /  REBUILD IN PROGRESS").assertExists()
     }
 }
