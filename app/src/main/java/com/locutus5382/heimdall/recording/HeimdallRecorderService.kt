@@ -5,10 +5,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.res.Configuration
 import android.content.Intent
 import android.os.IBinder
-import android.util.Log
 import com.locutus5382.heimdall.R
 import com.locutus5382.heimdall.ui.HeimdallTileService
 import com.locutus5382.heimdall.ui.MainActivity
@@ -42,11 +40,9 @@ class HeimdallRecorderService : Service() {
     private val commandTracker = ServiceCommandTracker()
     private val notificationGate = RecorderNotificationGate()
     private lateinit var engine: NativeRecorderEngine
-    private lateinit var hud: HudOverlayController
 
     override fun onCreate() {
         super.onCreate()
-        hud = HudOverlayController(applicationContext)
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
             .createNotificationChannel(NotificationChannel(
                 CHANNEL_ID, getString(R.string.recorder_channel),
@@ -64,15 +60,9 @@ class HeimdallRecorderService : Service() {
             var previousPhase: String? = null
             engine.status.collect { state ->
                 RecorderStatusHub.publish(state)
-                // A vendor overlay failure must never cancel this collector.
-                // Otherwise Dashboard, QS and notification status can freeze
-                // while the recorder engine still writes samples.
-                safelyDeliverHud(
-                    render = { hud.render(state) },
-                    release = { hud.dismiss() },
-                    report = { Log.w("HeimdallRecorder",
-                        "HUD rendering unavailable; status channel remains active", it) },
-                )
+                // Bifrost V2 clean-slate: the rejected Canvas HUD is retired.
+                // No overlay is attached until the separately reviewed HUD 2.0
+                // implementation is ready. Recording and notification still run.
                 when (state) {
                     is RecorderStatus.Recording, is RecorderStatus.Stopping,
                     is RecorderStatus.Saving, RecorderStatus.Preparing ->
@@ -256,11 +246,6 @@ class HeimdallRecorderService : Service() {
             .build()
     }
 
-    override fun onConfigurationChanged(newConfig: Configuration) {
-        super.onConfigurationChanged(newConfig)
-        hud.realign()
-    }
-
     override fun onDestroy() {
         // Android calls onDestroy on its main thread. NEVER runBlocking here:
         // the sampler has a Main dispatcher and cancelAndJoin could wait for
@@ -272,7 +257,6 @@ class HeimdallRecorderService : Service() {
         // Preserve the original startup error rather than masking it here.
         val state = if (::engine.isInitialized) engine.status.value
             else RecorderStatus.Idle
-        if (::hud.isInitialized) hud.dispose()
         scope.cancel()
         engineScope.cancel()
         val interrupted = when (state) {

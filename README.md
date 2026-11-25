@@ -8,7 +8,17 @@ private SQLite database and one optional Canvas HUD. It does **not** measure
 FPS, control clocks/fans, require root, ask for an account, or send recordings
 to a server. Independent of the older CoreMetrics package.
 
-## Current development state — Phase 1 Odin pretest, 25 November 2026
+## Current development state — Bifrost 2.0 clean-slate alpha, 25 November 2026
+
+> **UI reset:** The prior v0.8.7 recorder remains the verified source baseline,
+> but its large HUD/navigation/session accordion were rejected in the Odin
+> gameplay test. New work lives in the isolated
+> [Bifrost V2 redesign branch](https://github.com/locutus5382/Heimdall/tree/redesign/bifrost-2-clean-slate).
+> See [clean-slate architecture](docs/BIFROST_V2_CLEAN_SLATE_ARCHITECTURE.md).
+> This is not RC1 or an approved device-test build. The old HUD is intentionally
+> **disabled**, not silently repackaged in a new theme. DUKO/recorder engines
+> and all saved SQLite recordings are preserved.
+
 
 Current test candidate: **v0.8.7-odin-test-candidate** (code 16),
 branch `feature/phase1-v087-odin-test-candidate`, stacked on exact-head

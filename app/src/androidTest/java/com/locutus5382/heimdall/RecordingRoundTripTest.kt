@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.SystemClock
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -58,14 +59,16 @@ class RecordingRoundTripTest {
         }
         val originalId = recording.sessionId
         assertTrue(originalId > 0L)
-        compose.waitForIdle()
-        compose.onNodeWithText("Recording telemetry").assertExists()
+        compose.waitUntil(30_000L) {
+            compose.onAllNodesWithText("RECORDING").fetchSemanticsNodes().isNotEmpty()
+        }
 
         // An Activity recreation must reflect the original ongoing recording,
         // not allocate a second Service/engine or silently stop sampling.
         compose.activityRule.scenario.recreate()
-        compose.waitForIdle()
-        compose.onNodeWithText("Recording telemetry").assertExists()
+        compose.waitUntil(30_000L) {
+            compose.onAllNodesWithText("RECORDING").fetchSemanticsNodes().isNotEmpty()
+        }
         val afterRecreate = RecorderStatusHub.state.value as RecorderStatus.Recording
         assertEquals(originalId, afterRecreate.sessionId)
 
@@ -83,8 +86,9 @@ class RecordingRoundTripTest {
                 ?.takeIf { it.sessionId == originalId }
         }
         assertTrue(finished.samples > 0L)
-        compose.waitForIdle()
-        compose.onNodeWithText("Session saved").assertExists()
+        compose.waitUntil(30_000L) {
+            compose.onAllNodesWithText("SAVED").fetchSemanticsNodes().isNotEmpty()
+        }
 
         // Verify prototype history and CSV use the same persisted source rows.
         val archive = SessionArchive(app)

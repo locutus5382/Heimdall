@@ -2,9 +2,9 @@ name: Heimdall recorder quality gates
 
 on:
   push:
-    branches: [main, 'feature/**', 'fix/**', 'integration/**']
+    branches: [main, 'feature/**', 'fix/**', 'integration/**', 'redesign/**']
   pull_request:
-    branches: [main, 'feature/**', 'fix/**', 'integration/**']
+    branches: [main, 'feature/**', 'fix/**', 'integration/**', 'redesign/**']
   workflow_dispatch:
 
 # A new hardening commit supersedes obsolete test runs for the same branch.
@@ -105,7 +105,7 @@ jobs:
       - name: Upload standalone debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: HEIMDALL-v0.8.7-odin-test-debug
+          name: HEIMDALL-v0.9.0-bifrost-v2-alpha-debug
           if-no-files-found: error
           path: |
             app/build/outputs/apk/debug/app-debug.apk
@@ -141,7 +141,7 @@ jobs:
       - name: Upload optimized installable QA APK
         uses: actions/upload-artifact@v4
         with:
-          name: HEIMDALL-v0.8.7-odin-test-lean-debug
+          name: HEIMDALL-v0.9.0-bifrost-v2-alpha-lean-debug
           if-no-files-found: error
           path: |
             app/build/outputs/apk/leanDebug/app-leanDebug.apk

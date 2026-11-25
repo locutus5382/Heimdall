@@ -3,6 +3,7 @@ package com.locutus5382.heimdall
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -31,9 +32,8 @@ class DeviceDiagnosticsTest {
         assertTrue(report.contains("Overlay permission:"))
         assertTrue(report.contains("No FPS/root/network"))
 
-        compose.onNodeWithText("DIAGNOSTICS").performScrollTo().performClick()
-        compose.onNodeWithText("RUN DIAGNOSTICS")
-            .performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Navigate to Tools").performClick()
+        compose.onNodeWithText("RUN DIAGNOSTICS").performClick()
         compose.waitUntil(30_000L) {
             compose.onAllNodesWithText("CPU policies discovered")
                 .fetchSemanticsNodes().isNotEmpty()
