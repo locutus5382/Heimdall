@@ -149,7 +149,9 @@ internal fun V2AnalyticsScreen(
             when (V2AnalysisSection.entries.firstOrNull { it.name == section }
                 ?: V2AnalysisSection.OVERVIEW) {
                 V2AnalysisSection.OVERVIEW -> V2Overview(report)
-                V2AnalysisSection.MINUTES -> V2Minutes(report)
+                V2AnalysisSection.MINUTES -> V2MinuteExplorer(report) {
+                    model.selectAnalysisWindow(requireNotNull(selectedId), it)
+                }
                 V2AnalysisSection.CORES -> V2CoreDashboard(report)
                 V2AnalysisSection.CLOCKS -> V2ClocksDashboard(report)
                 V2AnalysisSection.THERMALS -> {
@@ -157,8 +159,12 @@ internal fun V2AnalyticsScreen(
                     V2ThermalExtras(report)
                 }
                 V2AnalysisSection.PRESSURE -> V2PressureDashboard(report)
-                V2AnalysisSection.EVENTS -> V2Events(report)
-                V2AnalysisSection.INSIGHTS -> V2Insights(report)
+                V2AnalysisSection.EVENTS -> V2EventExplorer(
+                    report, requireNotNull(state.detail?.duko?.window)
+                ) { model.selectAnalysisWindow(requireNotNull(selectedId), it) }
+                V2AnalysisSection.INSIGHTS -> V2InsightsExplorer(report) {
+                    model.selectAnalysisWindow(requireNotNull(selectedId), it)
+                }
             }
         } else if (!state.reading && selected != null) {
             V2Surface { Text("No qualified monotonic DUKO analysis for this session.",
