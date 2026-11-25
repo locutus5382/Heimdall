@@ -18,6 +18,7 @@ import com.locutus5382.heimdall.engine.duko.DukoEventAccumulator
 import com.locutus5382.heimdall.engine.duko.DukoEventSample
 import com.locutus5382.heimdall.engine.duko.DukoMetric
 import com.locutus5382.heimdall.engine.duko.DukoMinuteAccumulator
+import com.locutus5382.heimdall.engine.duko.DukoIntelligentAnalysis
 import com.locutus5382.heimdall.engine.duko.DukoObservation
 import com.locutus5382.heimdall.engine.duko.DukoSessionIntegrity
 import com.locutus5382.heimdall.engine.duko.DukoSessionOutcome
@@ -52,6 +53,7 @@ class DukoM18UiAndroidTest {
         }
         val cap = FrequencyCapTimeline(w, emptyList(),
             listOf(FrequencyCapEvent("policy0", 2_000L, true, 1800L, 2400L)))
+        val minuteReport = minutes.result()
         val events = DukoEventAccumulator(w).result(cap)
         val integrity = DukoSessionIntegrity(DukoSessionOutcome.COMPLETED, emptyMap())
         val energy = DukoEnergy.analyze(w, emptyList<DukoBatteryPoint>())
@@ -60,9 +62,11 @@ class DukoM18UiAndroidTest {
             energy = energy, thermal = emptyMap(),
             capabilitySnapshotAvailable = false,
             confidence = DukoConfidence.assess(integrity, energy),
-            minuteAnalysis = minutes.result(),
+            minuteAnalysis = minuteReport,
             cpuPolicyResidency = residency.result(),
             events = events,
+            insights = DukoIntelligentAnalysis.analyze(minuteReport,
+                events, cap, emptyMap(), DukoSessionOutcome.COMPLETED),
         )
     }
 
@@ -92,5 +96,10 @@ class DukoM18UiAndroidTest {
         compose.onNodeWithText("CAPS").performScrollTo().performClick()
         compose.onNodeWithText("POLICY CAP OBSERVED", substring = true)
             .performScrollTo().assertExists()
+        compose.onNodeWithText("INSIGHTS").performScrollTo().performClick()
+        compose.onNodeWithText("A / WORKLOAD PHASES").performScrollTo().assertExists()
+        compose.onNodeWithText("E / SUGGESTED COMPARISON WINDOWS")
+            .performScrollTo().assertExists()
+        compose.onNodeWithText("F / DUKO FINDINGS").performScrollTo().assertExists()
     }
 }

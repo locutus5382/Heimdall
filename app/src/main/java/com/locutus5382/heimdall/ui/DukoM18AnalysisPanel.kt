@@ -67,7 +67,7 @@ internal fun DukoM18AnalysisPanel(report: DukoFoundationReport) {
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            listOf("MINUTES", "CPU POLICIES", "EVENTS").forEach { tab ->
+            listOf("MINUTES", "CPU POLICIES", "EVENTS", "INSIGHTS").forEach { tab ->
                 FilterChip(
                     selected = selectedTab == tab,
                     onClick = { selectedTab = tab },
@@ -80,6 +80,7 @@ internal fun DukoM18AnalysisPanel(report: DukoFoundationReport) {
             "MINUTES" -> MinuteWindowPanel(report)
             "CPU POLICIES" -> CpuPolicyResidencyPanel(report)
             "EVENTS" -> EventTimelinePanel(report)
+            "INSIGHTS" -> DukoM19InsightsPanel(report)
         }
     }
 }

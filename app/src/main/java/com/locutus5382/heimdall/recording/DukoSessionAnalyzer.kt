@@ -40,6 +40,8 @@ import com.locutus5382.heimdall.engine.duko.CpuPolicyResidencyReport
 import com.locutus5382.heimdall.engine.duko.DukoEventAccumulator
 import com.locutus5382.heimdall.engine.duko.DukoEventSample
 import com.locutus5382.heimdall.engine.duko.DukoEventTimeline
+import com.locutus5382.heimdall.engine.duko.DukoIntelligentAnalysis
+import com.locutus5382.heimdall.engine.duko.DukoInsightReport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -68,7 +70,8 @@ data class DukoFoundationReport(
     val minuteAnalysis: DukoMinuteReport? = null,
     val cpuPolicyResidency: List<CpuPolicyResidencyReport> = emptyList(),
     val events: DukoEventTimeline? = null,
-    val analysisVersion: Int = 4,
+    val insights: DukoInsightReport? = null,
+    val analysisVersion: Int = 5,
 )
 
 internal class DukoSessionAnalyzer(
@@ -365,6 +368,21 @@ internal class DukoSessionAnalyzer(
             val thermal = thermalAccumulators.mapValues { (_, analyzer) ->
                 analyzer.finish()
             }
+            val minuteReport = minuteAnalysis.result()
+            val eventReport = eventTimeline.result(
+                caps = capReport,
+                interrupted = outcome != DukoSessionOutcome.COMPLETED,
+                wholeRecording = selectedWindow == null ||
+                    (selectedWindow.startMs == recorded.first &&
+                        selectedWindow.endMs == recorded.second),
+            )
+            val insightReport = DukoIntelligentAnalysis.analyze(
+                minutes = minuteReport,
+                events = eventReport,
+                caps = capReport,
+                thermal = thermal,
+                outcome = outcome,
+            )
             DukoFoundationReport(
                 sessionId = sessionId,
                 window = window,
@@ -379,15 +397,10 @@ internal class DukoSessionAnalyzer(
                 thermalStability = stabilityAccumulators.mapValues { (_, a) -> a.result() },
                 coreActivity = coreActivity.result(),
                 frequencyCaps = capReport,
-                minuteAnalysis = minuteAnalysis.result(),
+                minuteAnalysis = minuteReport,
                 cpuPolicyResidency = policyResidency.result(),
-                events = eventTimeline.result(
-                    caps = capReport,
-                    interrupted = outcome != DukoSessionOutcome.COMPLETED,
-                    wholeRecording = selectedWindow == null ||
-                        (selectedWindow.startMs == recorded.first &&
-                            selectedWindow.endMs == recorded.second),
-                ),
+                events = eventReport,
+                insights = insightReport,
                 timelines = timelines.mapValues { (_, a) -> a.result() },
                 perCoreTimelines = coreTimelines.mapValues { (_, a) -> a.result() },
                 declaredClusterTuneEnabled = declaredClusterTuneEnabled,
