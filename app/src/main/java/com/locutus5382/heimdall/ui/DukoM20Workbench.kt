@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -30,6 +31,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.locutus5382.heimdall.engine.duko.DukoEventType
 import com.locutus5382.heimdall.engine.duko.DukoMetric
 import com.locutus5382.heimdall.engine.duko.DukoRangeSelection
 import com.locutus5382.heimdall.engine.duko.DukoWindow
@@ -61,6 +63,12 @@ internal fun DukoRangeWorkbench(
     val bounds = original.window
     var from by rememberSaveable(sessionId, "range-from") { mutableFloatStateOf(0f) }
     var to by rememberSaveable(sessionId, "range-to") { mutableFloatStateOf(1f) }
+    var eventFilter by rememberSaveable(sessionId, "event-filter") {
+        mutableStateOf("ALL")
+    }
+    var eventPage by rememberSaveable(sessionId, "event-page") {
+        mutableIntStateOf(0)
+    }
     val proposed = DukoRangeSelection.select(bounds, from, to)
     val selected = state.analysisWindow
     val current = if (selected == null) original else
@@ -119,6 +127,103 @@ internal fun DukoRangeWorkbench(
                         label = { Text("CANDIDATE " + (i + 1)) }
                     )
                 }
+            }
+        }
+        val eventRows = original.events?.events.orEmpty().filter {
+            it.type !in setOf(DukoEventType.RECORDING_BEGIN,
+                DukoEventType.RECORDING_COMPLETE,
+                DukoEventType.RECORDING_INTERRUPTED,
+                DukoEventType.ANALYSIS_WINDOW_BEGIN,
+                DukoEventType.ANALYSIS_WINDOW_END)
+        }
+        if (eventRows.isNotEmpty()) {
+            Text("G / EVENT EXPLORER", color = BifrostColors.Amber)
+            Text("Choose an observed event to inspect the surrounding 30-second " +
+                "context on either side. Proximity is not proof of causality.",
+                color = BifrostColors.Muted, fontSize = 11.sp)
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("ALL", "CAPS", "THERMAL", "LOAD", "PSI").forEach { option ->
+                    FilterChip(
+                        selected = eventFilter == option,
+                        onClick = { eventFilter = option; eventPage = 0 },
+                        label = { Text(option, fontSize = 10.sp) }
+                    )
+                }
+            }
+            val filtered = eventRows.filter { event ->
+                when (eventFilter) {
+                    "CAPS" -> event.type in setOf(
+                        DukoEventType.POLICY_CAP_OBSERVED,
+                        DukoEventType.POLICY_CAP_CLEARED)
+                    "THERMAL" -> event.type in setOf(
+                        DukoEventType.BATTERY_HOT,
+                        DukoEventType.THERMAL_PRESSURE)
+                    "LOAD" -> event.type in setOf(
+                        DukoEventType.CPU_LOAD_HIGH,
+                        DukoEventType.GPU_LOAD_HIGH)
+                    "PSI" -> event.type in setOf(
+                        DukoEventType.CPU_PSI_PRESSURE,
+                        DukoEventType.MEMORY_PSI_PRESSURE)
+                    else -> true
+                }
+            }
+            if (filtered.isEmpty()) {
+                Text("No recorded events in this category.",
+                    color = BifrostColors.Muted, fontSize = 11.sp)
+            } else {
+                val pageCount = (filtered.size + 3) / 4
+                val safePage = eventPage.coerceIn(0, pageCount - 1)
+                filtered.drop(safePage * 4).take(4).forEach { event ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(event.type.name.replace('_', ' ') +
+                                " · +" + m20Offset(bounds, event.startMs),
+                                color = BifrostColors.Ice, fontSize = 11.sp)
+                            Text(event.detail + " · " +
+                                if (event.durationMs > 0)
+                                    (event.durationMs / 1000L).toString() +
+                                        "s observed"
+                                else "point-in-time observation",
+                                color = BifrostColors.Muted, fontSize = 10.sp)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                DukoRangeSelection.focus(bounds, event.startMs,
+                                    event.endMs)?.let { focus ->
+                                    from = ((focus.startMs - bounds.startMs).toDouble() /
+                                        bounds.durationMs).toFloat()
+                                    to = ((focus.endMs - bounds.startMs).toDouble() /
+                                        bounds.durationMs).toFloat()
+                                    model.selectAnalysisWindow(sessionId, focus)
+                                }
+                            },
+                            enabled = !state.readingSelection && !state.exporting,
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        ) { Text("FOCUS EVENT", fontSize = 10.sp) }
+                    }
+                }
+                if (pageCount > 1) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { eventPage = (safePage - 1).coerceAtLeast(0) },
+                            enabled = safePage > 0, modifier = Modifier.weight(1f)) {
+                            Text("PREV EVENTS", fontSize = 10.sp)
+                        }
+                        OutlinedButton(
+                            onClick = { eventPage = (safePage + 1).coerceAtMost(pageCount - 1) },
+                            enabled = safePage < pageCount - 1,
+                            modifier = Modifier.weight(1f)) {
+                            Text("NEXT EVENTS", fontSize = 10.sp)
+                        }
+                    }
+                }
+                val missing = original.events?.droppedEvents ?: 0
+                if (missing > 0) Text("Event list capped: " + missing +
+                    " additional events omitted.", color = BifrostColors.Amber,
+                    fontSize = 10.sp)
             }
         }
         if (state.readingSelection) {
