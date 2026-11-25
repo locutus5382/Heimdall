@@ -26,7 +26,7 @@ internal object DukoVisualRenderer {
     private const val MARGIN = 36f
     private const val CONTENT_TOP = 128f
     private const val CONTENT_BOTTOM = 786f
-    private const val MAX_PAGES = 8
+    private const val MAX_PAGES = 12
     private const val PNG_SCALE = 2f
     private val ink = Color.rgb(240, 245, 255)
     private val secondary = Color.rgb(162, 181, 204)
@@ -200,12 +200,15 @@ internal object DukoVisualRenderer {
                 output.flush()
             } finally { pdf.close() }
         } else {
-            val width = (PAGE_WIDTH * PNG_SCALE).toInt()
-            val height = (PAGE_HEIGHT * PNG_SCALE).toInt() * pages.size
+            // Keep multi-page PNG memory bounded on 6-run reports while
+            // retaining 2x resolution for shorter documents.
+            val scale = if (pages.size <= 6) PNG_SCALE else 1.45f
+            val width = (PAGE_WIDTH * scale).toInt()
+            val height = (PAGE_HEIGHT * scale).toInt() * pages.size
             val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
             try {
                 val canvas = Canvas(bitmap)
-                canvas.scale(PNG_SCALE, PNG_SCALE)
+                canvas.scale(scale, scale)
                 pages.forEachIndexed { index, blocks ->
                     canvas.save()
                     canvas.translate(0f, index.toFloat() * PAGE_HEIGHT)
