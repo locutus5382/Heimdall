@@ -381,8 +381,13 @@ internal class DukoSessionAnalyzer(
                 frequencyCaps = capReport,
                 minuteAnalysis = minuteAnalysis.result(),
                 cpuPolicyResidency = policyResidency.result(),
-                events = eventTimeline.result(capReport,
-                    interrupted = outcome != DukoSessionOutcome.COMPLETED),
+                events = eventTimeline.result(
+                    caps = capReport,
+                    interrupted = outcome != DukoSessionOutcome.COMPLETED,
+                    wholeRecording = selectedWindow == null ||
+                        (selectedWindow.startMs == recorded.first &&
+                            selectedWindow.endMs == recorded.second),
+                ),
                 timelines = timelines.mapValues { (_, a) -> a.result() },
                 perCoreTimelines = coreTimelines.mapValues { (_, a) -> a.result() },
                 declaredClusterTuneEnabled = declaredClusterTuneEnabled,

@@ -2,6 +2,7 @@ package com.locutus5382.heimdall.engine.duko
 
 enum class DukoEventType {
     RECORDING_BEGIN, RECORDING_COMPLETE, RECORDING_INTERRUPTED,
+    ANALYSIS_WINDOW_BEGIN, ANALYSIS_WINDOW_END,
     CPU_LOAD_HIGH, GPU_LOAD_HIGH, BATTERY_HOT,
     THERMAL_PRESSURE, CPU_PSI_PRESSURE, MEMORY_PSI_PRESSURE,
     POLICY_CAP_OBSERVED, POLICY_CAP_CLEARED,
@@ -125,12 +126,18 @@ class DukoEventAccumulator(
     fun result(
         caps: FrequencyCapTimeline? = null,
         interrupted: Boolean = false,
+        wholeRecording: Boolean = true,
     ): DukoEventTimeline {
         listOf(cpuHigh, gpuHigh, batteryHot, thermal, cpuPsi, memoryPsi)
             .forEach { it.close() }
         val all = ArrayList<DukoTimelineEvent>()
-        all += DukoTimelineEvent(DukoEventType.RECORDING_BEGIN, window.startMs,
-            window.startMs, "Recorded evidence begins")
+        all += DukoTimelineEvent(
+            if (wholeRecording) DukoEventType.RECORDING_BEGIN
+            else DukoEventType.ANALYSIS_WINDOW_BEGIN,
+            window.startMs, window.startMs,
+            if (wholeRecording) "Recorded evidence begins"
+            else "Selected analysis window begins"
+        )
         all += completed
         caps?.events?.forEach { cap ->
             all += DukoTimelineEvent(
@@ -142,10 +149,12 @@ class DukoEventAccumulator(
             )
         }
         all += DukoTimelineEvent(
-            if (interrupted) DukoEventType.RECORDING_INTERRUPTED
+            if (!wholeRecording) DukoEventType.ANALYSIS_WINDOW_END
+            else if (interrupted) DukoEventType.RECORDING_INTERRUPTED
             else DukoEventType.RECORDING_COMPLETE,
             window.endMs, window.endMs,
-            if (interrupted) "Session interrupted; evidence may be incomplete"
+            if (!wholeRecording) "Selected analysis window ends"
+            else if (interrupted) "Session interrupted; evidence may be incomplete"
             else "Recorded evidence ends"
         )
         val ordered = all.sortedWith(compareBy<DukoTimelineEvent> { it.startMs }

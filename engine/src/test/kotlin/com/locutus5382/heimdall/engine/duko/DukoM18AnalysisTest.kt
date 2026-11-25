@@ -118,6 +118,20 @@ class DukoM18AnalysisTest {
         assertFalse(r.events.any { it.type == DukoEventType.CPU_PSI_PRESSURE })
     }
 
+    @Test fun selectedWindowDoesNotClaimThatRecordingCompleted() {
+        val w = DukoWindow(60_000L, 120_000L)
+        val timeline = DukoEventAccumulator(w).result(
+            interrupted = true, wholeRecording = false)
+        assertTrue(timeline.events.any {
+            it.type == DukoEventType.ANALYSIS_WINDOW_BEGIN })
+        assertTrue(timeline.events.any {
+            it.type == DukoEventType.ANALYSIS_WINDOW_END })
+        assertFalse(timeline.events.any {
+            it.type == DukoEventType.RECORDING_COMPLETE ||
+                it.type == DukoEventType.RECORDING_INTERRUPTED
+        })
+    }
+
     @Test fun capTransitionsMergeIntoChronologicalUnifiedTimeline() {
         val w = DukoWindow(0L, 120_000L)
         val caps = FrequencyCapTimeline(w, emptyList(), listOf(

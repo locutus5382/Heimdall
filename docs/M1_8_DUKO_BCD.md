@@ -45,7 +45,11 @@ and missing topology are **not fabricated**.
 ## D — Unified event timeline
 
 Computed from recorded timestamps; never written to a new events table:
-- Actual recorded interval begin/end and interruption reason when present.
+- True recording start/end (or interruption) only for complete recording
+  analysis. When a user selects a *slice* of a session, mark
+  ANALYSIS_WINDOW_BEGIN / ANALYSIS_WINDOW_END instead; do not misrepresent
+  the slice boundary as actual recording start/stop. Session interruption
+  remains in the integrity report.
 - Observed CPU-policy cap transitions with their recorded active/hardware
   ceilings; **no ClusterTune/thermal causality attribution**.
 - Heuristic sustained signals: overall CPU load ≥95% for ≥120s, GPU load
@@ -76,7 +80,8 @@ remain in place.
 2. Android test loads saved v7 evidence and verifies retroactive minute
    summaries, per-policy residency and event integration without any
    hardware sysfs override.
-3. Existing Android API 35 UI/recording/migration tests run unchanged,
+3. Existing Android API 35 UI/recording/migration tests run together with
+   new touch-navigation and selected-window boundary regression checks,
    including 0.8.0's 96 standard and 96 optimized tests; updated
    analysis-version assertions must not weaken checks.
 4. Verify both normal and leanDebug R8 instrumentation variants on the

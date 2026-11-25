@@ -296,7 +296,8 @@ private fun EventTimelinePanel(report: DukoFoundationReport) {
                 DukoEventType.CPU_PSI_PRESSURE, DukoEventType.MEMORY_PSI_PRESSURE)
             "RECORDING" -> event.type in setOf(
                 DukoEventType.RECORDING_BEGIN, DukoEventType.RECORDING_COMPLETE,
-                DukoEventType.RECORDING_INTERRUPTED)
+                DukoEventType.RECORDING_INTERRUPTED,
+                DukoEventType.ANALYSIS_WINDOW_BEGIN, DukoEventType.ANALYSIS_WINDOW_END)
             else -> true
         }
     }
