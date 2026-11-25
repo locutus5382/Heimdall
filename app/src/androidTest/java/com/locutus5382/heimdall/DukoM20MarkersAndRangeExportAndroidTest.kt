@@ -49,6 +49,11 @@ class DukoM20MarkersAndRangeExportAndroidTest {
                 "Second scene, transition")
             assertEquals(2, markers.list(id).size)
             assertEquals(start + 4_000L, second.elapsedMs)
+            assertTrue(markers.rename(id, live.id, "Boss phase 2"))
+            assertEquals("Boss phase 2",
+                markers.list(id).first { it.id == live.id }.label)
+            assertEquals(liveAt,
+                markers.list(id).first { it.id == live.id }.elapsedMs)
             assertTrue(markers.delete(id, live.id))
             assertEquals(listOf(second.id), markers.list(id).map { it.id })
             assertEquals(6L, store.sampleCount(id))
