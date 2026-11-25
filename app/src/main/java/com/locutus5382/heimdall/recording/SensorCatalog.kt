@@ -102,6 +102,14 @@ internal class SensorCatalog private constructor(private val app: Context) {
             clockMHz(policy.siliconMax)?.let { policy.id to it }
         }.toMap()
 
+    // CPU silicon specification is comparatively stable. A 60-second refresh
+    // avoids per-tick sysfs reads while still recovering temporarily blocked
+    // paths. Fresh SensorCatalog discovery gets a fresh cache. Dynamic
+    // scaling_max_freq is deliberately NOT cached.
+    private val staticCeilings = TimedEvidenceCache(60_000L) { siliconLimitsMHz() }
+    fun siliconLimitsCachedMHz(elapsedRealtimeMs: Long): Map<String, Long> =
+        staticCeilings.value(elapsedRealtimeMs)
+
     fun gpuClockMHz(): Long? = gpuClockNodes.firstNotNullOfOrNull(::gpuMHz)
     fun gpuUtilization(): Double? =
         gpuBusyNodes.firstNotNullOfOrNull { parseBusy(readLine(it)) }
