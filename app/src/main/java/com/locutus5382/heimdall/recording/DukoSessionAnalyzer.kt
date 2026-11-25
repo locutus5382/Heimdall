@@ -376,12 +376,11 @@ internal class DukoSessionAnalyzer(
                     (selectedWindow.startMs == recorded.first &&
                         selectedWindow.endMs == recorded.second),
             )
-            val thermalReports = thermalAccumulators.mapValues { (_, a) -> a.finish() }
             val insightReport = DukoIntelligentAnalysis.analyze(
                 minutes = minuteReport,
                 events = eventReport,
                 caps = capReport,
-                thermal = thermalReports,
+                thermal = thermal,
                 outcome = outcome,
             )
             DukoFoundationReport(
@@ -389,7 +388,7 @@ internal class DukoSessionAnalyzer(
                 window = window,
                 integrity = integrity,
                 energy = energy,
-                thermal = thermalReports,
+                thermal = thermal,
                 capabilitySnapshotAvailable = snapshotJson != null,
                 // The generic Android device capture is never treated as a
                 // calibrated electrical instrument.
