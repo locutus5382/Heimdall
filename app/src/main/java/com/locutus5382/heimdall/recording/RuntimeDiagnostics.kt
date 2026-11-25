@@ -195,6 +195,20 @@ class RuntimeDiagnostics(context: Context) {
                                 cursor.getLong(1))
                         }
                     }
+                    // Phase 1: verify the newest completed session against
+                    // its original sample rows, without changing source data.
+                    // This is a single indexed count performed ON DEMAND.
+                    val latest = latestSavedSessionAudit(database)
+                    if (latest == null) {
+                        line("Latest saved row integrity", "no completed session yet")
+                    } else {
+                        line("Latest saved session inspected", latest.sessionId)
+                        line("Latest saved declared samples", latest.declaredRows)
+                        line("Latest saved source rows", latest.actualRows)
+                        line("Latest saved row integrity",
+                            if (latest.consistent) "MATCH"
+                            else "MISMATCH — preserve data, report before RC1")
+                    }
                     // No full-table sample scan; this probe must stay cheap.
                     line("SQLite source", "read only")
                 }

@@ -8,22 +8,20 @@ private SQLite database and one optional Canvas HUD. It does **not** measure
 FPS, control clocks/fans, require root, ask for an account, or send recordings
 to a server. Independent of the older CoreMetrics package.
 
-## Current development state (25 November 2026)
+## Current development state — Phase 1 Odin pretest, 25 November 2026
 
-The Bifrost touchscreen-first UI integration is being validated in draft
-[PR #54](https://github.com/locutus5382/Heimdall/pull/54), branch
-`feature/m1-bifrost-ui-rebuild`. M1.6's exact-head Android CI is a **required
-gate**; M1.7 physical Odin 2 Portal validation has **not** been completed.
-**This is not RC1, a stable signed release, or a Play Store build.**
+Current candidate: **v0.8.6-odin-pretest-stability-alpha** (code 15),
+branch `feature/phase1-odin-stability-acceptance`, stacked on successful
+exact-head v0.8.5 `c3ff86a31fc68ecd7fe84a5f76c98ec7d4292140`.
+The tested baseline v0.8.0 `950cfc606aeca80e4db04f265632b7bf6fdec423`
+remains untouched. **This is not RC1 or a device-tested release.**
 
-The **unchanged, Odin-testable baseline** remains commit
-`950cfc606aeca80e4db04f265632b7bf6fdec423`,
-`0.8.0-percore-psi-alpha`, with 96/96 standard and 96/96 optimized
-Android API 35 tests passing. **M1.8 development is isolated** on
-`feature/m18-duko-minute-residency-events`; its version is
-`0.8.1-duko-timelines-alpha` (versionCode 10). This development branch is
-not the user's verified v0.8.0 APK or an RC1 candidate.
-
+Phase 1 improves HUD failure isolation, partially attached window
+rollback, and on-demand read-only verification of the latest saved
+session's SQLite sample count. See
+[the 27-case Odin acceptance matrix](docs/PHASE1_V086_ODIN_PRETEST.md).
+Everything in the physical acceptance matrix is NOT TESTED until the
+Odin 2 Portal provides actual evidence.
 ### Working features in source
 
 - **Dashboard:** actual recorder Start, Stop & Save, status and persisted
@@ -68,19 +66,33 @@ not the user's verified v0.8.0 APK or an RC1 candidate.
   A/B computations reject rapid duplicate requests and preserve frozen
   report payloads across the Android document picker.
 
-### Not yet confirmed or not implemented
+### Implemented beyond the earlier M1.8 roadmap
 
-- Physical Odin 2 Portal lifecycle/HUD and long-session performance
-  validation, plus vendor-specific telemetry reliability.
-- Broad Retroid, AYANEO, Anbernic and other Android handheld verification.
-- Optional richer PNG/PDF reports, deeper energy calibration and some
-  advanced activity/event analytics. Do not claim that battery terminal
-  readings equal game-specific power consumption.
-- Stable distribution signing, reproducible upgrade path across CI runs,
-  RC1/Play Store packaging, final accessibility and visual acceptance.
-- Automatic continuation of sampling after arbitrary process death is
-  **not** claimed; unfinished original evidence is protected instead.
+- DUKO M1.9: workload segments, selected-window suggestions and
+  source-qualified findings.
+- M2.0: interactive selected-range charts, timestamped live/post-run
+  markers and original-row range CSV (SQLite schema v8).
+- M2.1: 2–6-run evidence-gated comparisons and comparison-only
+  offline PDF/PNG exports alongside A/B TXT/CSV.
+- M2.2/K: bounded recorder read/SQLite latency histograms, missed
+  deadlines and user-triggered process CPU/memory diagnostics.
+- Phase 1: HUD status-subscriber failure isolation, partial-window
+  rollback and latest saved-row consistency audit.
 
+### Not yet confirmed or planned after the pretest
+
+- Real Odin 2 Portal HUD/touch, sensors, battery/thermal and recorder
+  CPU/memory overhead validation; longer recording and gameplay.
+- Actual WindowManager attach/update/remove fault-injection on the device;
+  guard tests alone are not sufficient.
+- Stable APK distribution signing, upgrade safety across CI builds,
+  final reviewed stacked-PR integration, accessibility/visual sign-off.
+- Other handheld validation (Retroid, AYANEO, Anbernic); richer hardware
+  detection where Android/vendor permissions allow.
+- Future DUKO robust multi-run repeatability (MAD/outliers), behavior
+  fingerprints, customizable reports and persistent HUD alert history.
+- Automatic sampling continuation after process death is not claimed:
+  original unfinished sessions are protected instead.
 ## Build and validation
 
 Prerequisites: JDK 17, Android SDK 36 and Gradle 8.11.1.
@@ -96,19 +108,14 @@ verifies permissions and APK checksums, and runs API 35 instrumentation
 against the normal and separately optimized QA builds. **A green Android
 build alone is not an accepted milestone.**
 
-The CI artifacts `HEIMDALL-v0.8.1-duko-timelines-debug` and
-`HEIMDALL-v0.8.1-duko-timelines-lean-debug` contain test APKs and a SHA-256 manifest.
-Do **not** install the M1.8 build for Odin acceptance until its new
-exact-head tests pass. The already verified 0.8.0 APK remains available from
-the successful [baseline run](https://github.com/locutus5382/Heimdall/actions/runs/45260720071).
-Install only from a **successful exact-commit run**. CI debug signing
-certificates can change between runs, so `adb install -r` may reject an
-upgrade. **Never uninstall Heimdall to bypass a signing mismatch if its
-database contains recordings.** Export before migrating. Do not uninstall
-CoreMetrics.
-
-Next physical-test procedure:
-[docs/M1_7_ODIN_PORTAL_ACCEPTANCE.md](docs/M1_7_ODIN_PORTAL_ACCEPTANCE.md).
+Get the v0.8.6 pretest artifacts **only from successful exact-head push
+and PR workflow runs**. The expected artifact is
+`HEIMDALL-v0.8.6-odin-pretest-lean-debug`. Verify the matching APK
+SHA-256 manifest and commit before installing. CI debug signing can
+change between runs; if an update reports a signature mismatch, STOP.
+Do not uninstall Heimdall or delete recordings to make an APK install.
+Controlling physical-test procedure:
+[docs/PHASE1_V086_ODIN_PRETEST.md](docs/PHASE1_V086_ODIN_PRETEST.md).
 Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 M1.6 quality gates:
 [docs/M1_6_INTEGRATION_RELIABILITY.md](docs/M1_6_INTEGRATION_RELIABILITY.md).

@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.res.Configuration
 import android.content.Intent
 import android.os.IBinder
+import android.util.Log
 import com.locutus5382.heimdall.R
 import com.locutus5382.heimdall.ui.HeimdallTileService
 import com.locutus5382.heimdall.ui.MainActivity
@@ -63,7 +64,15 @@ class HeimdallRecorderService : Service() {
             var previousPhase: String? = null
             engine.status.collect { state ->
                 RecorderStatusHub.publish(state)
-                hud.render(state)
+                // A vendor overlay failure must never cancel this collector.
+                // Otherwise Dashboard, QS and notification status can freeze
+                // while the recorder engine still writes samples.
+                safelyDeliverHud(
+                    render = { hud.render(state) },
+                    release = { hud.dismiss() },
+                    report = { Log.w("HeimdallRecorder",
+                        "HUD rendering unavailable; status channel remains active", it) },
+                )
                 when (state) {
                     is RecorderStatus.Recording, is RecorderStatus.Stopping,
                     is RecorderStatus.Saving, RecorderStatus.Preparing ->
