@@ -98,23 +98,37 @@ internal fun V2AnalyticsScreen(
         }
         val ov = state.detail?.overview
         if (ov != null) {
-            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                Box(Modifier.weight(1f)) {
-                    V2Value("CPU MEDIAN",
-                        ov.cpuLoad?.median?.let { formatV2Number(it) + "%" } ?: "—")
-                }
-                Box(Modifier.weight(1f)) {
-                    V2Value("CPU P95",
-                        ov.cpuLoad?.p95?.let { formatV2Number(it) + "%" } ?: "—")
-                }
-                Box(Modifier.weight(1f)) {
-                    V2Value("GPU CLOCK P95",
-                        ov.gpuClock?.p95?.let { formatV2Number(it, 0) + " MHz" } ?: "—")
-                }
-                Box(Modifier.weight(1f)) {
-                    V2Value("BATTERY",
-                        (ov.batteryAtStart?.toString() ?: "—") + " → " +
-                        (ov.batteryAtEnd?.toString() ?: "—") + "%")
+            val cpuEvidence = report?.integrity?.metrics?.get(DukoMetric.CPU_LOAD)
+            val gpuEvidence = report?.integrity?.metrics?.get(DukoMetric.GPU_LOAD)
+            val fullRunOnly = state.analysisWindow == null
+            val kpis = listOf(
+                Triple("CPU MEDIAN",
+                    (cpuEvidence?.median ?: ov.cpuLoad?.median?.takeIf { fullRunOnly })
+                        ?.let { formatV2Number(it) + "%" } ?: "—", V2Palette.cyan),
+                Triple("CPU P95",
+                    (cpuEvidence?.p95 ?: ov.cpuLoad?.p95?.takeIf { fullRunOnly })
+                        ?.let { formatV2Number(it) + "%" } ?: "—", V2Palette.cyan),
+                Triple("GPU MEDIAN",
+                    gpuEvidence?.median?.let { formatV2Number(it) + "%" } ?: "—",
+                    V2Palette.amber),
+                Triple("BATTERY / FULL RUN",
+                    (ov.batteryAtStart?.toString() ?: "—") + " → " +
+                        (ov.batteryAtEnd?.toString() ?: "—") + "%",
+                    V2Palette.teal)
+            )
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val perRow = if (maxWidth >= 630.dp) 4 else 2
+                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    kpis.chunked(perRow).forEach { group ->
+                        Row(Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                            group.forEach { (label, value, color) ->
+                                Box(Modifier.weight(1f)) {
+                                    V2Value(label, value, accent = color)
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
