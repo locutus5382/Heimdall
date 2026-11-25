@@ -52,7 +52,7 @@ class DukoWindowSelectionAndroidTest {
             val requested = DukoWindow(start + 2_000L, start + 6_000L)
             val selected = requireNotNull(analyzer.analyze(session, requested))
             assertEquals(requested, selected.window)
-            assertEquals(4, selected.analysisVersion)
+            assertEquals(5, selected.analysisVersion)
             // M1.8: selecting only a slice MUST NOT invent recording
             // start/end events at the slice's endpoints.
             val selectedEvents = requireNotNull(selected.events).events
