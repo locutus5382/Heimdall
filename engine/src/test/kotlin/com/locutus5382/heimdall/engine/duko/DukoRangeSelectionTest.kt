@@ -25,6 +25,28 @@ class DukoRangeSelectionTest {
         assertNull(DukoRangeSelection.select(w, .4f, .4001f))
     }
 
+    @Test fun eventFocusStaysWithinRecordedBoundsAndIncludesObservedDuration() {
+        val bounds = DukoWindow(10_000L, 130_000L)
+        assertEquals(DukoWindow(10_000L, 42_000L),
+            DukoRangeSelection.focus(bounds, 12_000L))
+        assertEquals(DukoWindow(75_000L, 130_000L),
+            DukoRangeSelection.focus(bounds, 105_000L, 118_000L))
+        assertNull(DukoRangeSelection.focus(bounds, 9_999L))
+        assertNull(DukoRangeSelection.focus(bounds, 20_000L, 19_999L))
+        assertNull(DukoRangeSelection.focus(bounds, 20_000L, 140_000L))
+        assertNull(DukoRangeSelection.focus(bounds, 20_000L, contextMs = -1L))
+    }
+
+    @Test fun shortRecordedEventFocusFallsBackToExactEntireWindow() {
+        val bounds = DukoWindow(5_000L, 7_000L)
+        assertEquals(bounds,
+            DukoRangeSelection.focus(bounds, 6_000L, contextMs = 0L))
+    }
+
+    @Test fun eventFocusRejectsTooShortSession() {
+        assertNull(DukoRangeSelection.focus(DukoWindow(0, 1_000L), 500L))
+    }
+
     @Test fun selectionIsIndependentOfActualSampleDistribution() {
         val w = DukoWindow(1_000L, 121_000L)
         // The selection never fabricates interpolated samples. SQLite will
