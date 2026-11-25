@@ -136,11 +136,8 @@ internal fun DukoSignalCharts(report: DukoFoundationReport) {
                 drawLine(BifrostColors.Amber.copy(alpha = 0.88f),
                     Offset(left, y(mean)), Offset(right, y(mean)), 1.dp.toPx())
                 // A missing interval must not be smoothed into invented load.
-                val maximumGap = maxOf(8_000L,
-                    (selected.window.durationMs / 150L) * 3L)
                 selected.trace.zipWithNext().forEach { (a, b) ->
-                    if (b.elapsedMs > a.elapsedMs &&
-                        b.elapsedMs - a.elapsedMs <= maximumGap) {
+                    if (b.continuousFromPrevious && b.elapsedMs > a.elapsedMs) {
                         drawLine(BifrostColors.Signal,
                             Offset(x(a.elapsedMs), y(a.value)),
                             Offset(x(b.elapsedMs), y(b.value)), 2.dp.toPx())
@@ -169,7 +166,8 @@ internal fun DukoSignalCharts(report: DukoFoundationReport) {
                 selected.unit + "   ·   SAMPLE SD ±" +
                 signalNumber(selected.sampleStandardDeviation) + " " + selected.unit,
                 color = BifrostColors.Amber, fontSize = 12.sp)
-            Text("Recorded sample-bucket averages. Gaps remain unconnected; " +
+            Text("Recorded sample-bucket averages; only cadence-verified neighboring " +
+                "buckets connect. Gaps remain unconnected; " +
                 "PSI values are system-wide rolling 10-second percentages.",
                 color = BifrostColors.Muted, fontSize = 10.sp)
         }
