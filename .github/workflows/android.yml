@@ -2,9 +2,9 @@ name: Heimdall recorder quality gates
 
 on:
   push:
-    branches: [main, 'feature/**', 'fix/**', 'integration/**']
+    branches: [main, 'feature/**', 'fix/**', 'integration/**', 'redesign/**']
   pull_request:
-    branches: [main, 'feature/**', 'fix/**', 'integration/**']
+    branches: [main, 'feature/**', 'fix/**', 'integration/**', 'redesign/**']
   workflow_dispatch:
 
 # A new hardening commit supersedes obsolete test runs for the same branch.
