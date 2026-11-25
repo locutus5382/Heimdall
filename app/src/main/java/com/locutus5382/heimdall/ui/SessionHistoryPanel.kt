@@ -16,6 +16,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -25,6 +26,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.locutus5382.heimdall.recording.DukoSessionMarker
 import com.locutus5382.heimdall.engine.duko.ClockResidencyResult
 import com.locutus5382.heimdall.engine.duko.ThermalStabilityResult
 import com.locutus5382.heimdall.engine.duko.DukoEvidence
@@ -118,6 +120,9 @@ internal fun SessionHistoryPanel(
     val tagDraftStates = rememberSaveableStateHolder()
 
     val chooser = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/csv")
+    ) { uri -> model.onExportResult(uri) }
+    val selectedCsvPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/csv")
     ) { uri -> model.onExportResult(uri) }
 
@@ -264,7 +269,34 @@ internal fun SessionHistoryPanel(
                         )
                         }
                         if (section == SessionDetailSection.ANALYSIS.name) {
-                        val duko = foundation
+                        val originalDuko = foundation
+                        val duko = if (state.analysisWindow == null) originalDuko
+                            else state.selectedAnalysis?.takeIf {
+                                it.window == state.analysisWindow
+                            }
+                        if (originalDuko != null) {
+                            var sessionMarkers by remember(session.id) {
+                                mutableStateOf<List<DukoSessionMarker>>(emptyList())
+                            }
+                            DukoRangeWorkbench(
+                                sessionId = session.id,
+                                original = originalDuko,
+                                state = state,
+                                model = model,
+                                markers = sessionMarkers,
+                                onExportRange = {
+                                    if (model.requestExport(session.id, selectedOnly = true))
+                                        selectedCsvPicker.launch(
+                                            "Heimdall_session_" + session.id + "_selected.csv")
+                                },
+                            )
+                            DukoM20MarkersPanel(
+                                sessionId = session.id,
+                                bounds = originalDuko.window,
+                                markers = sessionMarkers,
+                                onMarkersChange = { sessionMarkers = it },
+                            )
+                        }
                         if (duko != null) {
                             DukoSignalCharts(duko)
                             DukoCoreAndPressurePanel(duko)
@@ -379,8 +411,10 @@ internal fun SessionHistoryPanel(
                             }
                         } else {
                             Text(
-                                "Duko time-weighted analysis requires at least two " +
-                                    "monotonic samples; older sessions retain their basic summaries.",
+                                if (originalDuko != null)
+                                    "Selected analysis is loading or unavailable. Reset to full session."
+                                else "DUKO analysis requires at least two monotonic samples; " +
+                                    "older sessions retain their basic summaries.",
                                 color = Subtle
                             )
                         }
