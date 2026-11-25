@@ -198,7 +198,7 @@ object DukoIntelligentAnalysis {
             if (first != null && second != null &&
                 abs(requireNotNull(first.timeWeightedMean) -
                     requireNotNull(second.timeWeightedMean)) >
-                if (metric == DukoMetric.CPU_LOAD) 12.0 else 15.0) return false
+                (if (metric == DukoMetric.CPU_LOAD) 12.0 else 15.0)) return false
         }
         return true
     }
@@ -342,7 +342,7 @@ object DukoIntelligentAnalysis {
             if (outcome != DukoSessionOutcome.COMPLETED)
                 add("SESSION_INTERRUPTED_OR_RECOVERED_CONCLUSIONS_DOWNGRADED")
             if (minutes.truncated) add("WORKLOAD_PHASES_LIMITED_TO_FIRST_360_MINUTES")
-            if (events?.droppedEvents ?: 0 > 0)
+            if ((events?.droppedEvents ?: 0) > 0)
                 add("EVENT_TIMELINE_TRUNCATED")
         }
         return DukoInsightReport(
