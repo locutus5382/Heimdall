@@ -52,6 +52,8 @@ internal fun DukoM20MarkersPanel(
     var position by rememberSaveable(sessionId, "marker-position") {
         mutableFloatStateOf(.5f)
     }
+    var editingId by remember(sessionId) { mutableStateOf<Long?>(null) }
+    var editText by rememberSaveable(sessionId, "editingLabel") { mutableStateOf("") }
     var busy by remember(sessionId) { mutableStateOf(false) }
     var notice by remember(sessionId) { mutableStateOf<String?>(null) }
     LaunchedEffect(sessionId) {
@@ -109,33 +111,77 @@ internal fun DukoM20MarkersPanel(
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
         ) { Text("ADD MARKER") }
         markers.take(40).forEach { marker ->
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                Column(Modifier.weight(1f)) {
-                    Text("+" + markAt(bounds, marker.elapsedMs) +
-                        " · " + marker.label, color = BifrostColors.Ice,
-                        fontSize = 11.sp)
+                Text("+" + markAt(bounds, marker.elapsedMs) +
+                    " · " + marker.label, color = BifrostColors.Ice,
+                    fontSize = 11.sp)
+                if (editingId == marker.id) {
+                    OutlinedTextField(
+                        value = editText,
+                        onValueChange = { editText = it.take(120) },
+                        label = { Text("EDIT MARKER LABEL") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            enabled = !busy && editText.trim().isNotEmpty(),
+                            onClick = {
+                                busy = true
+                                scope.launch {
+                                    try {
+                                        store.rename(sessionId, marker.id, editText)
+                                        onMarkersChange(store.list(sessionId))
+                                        editingId = null
+                                        notice = "Annotation renamed; time and samples unchanged."
+                                    } catch (cancel: CancellationException) { throw cancel }
+                                    catch (error: Exception) {
+                                        notice = "Could not rename: " +
+                                            error.javaClass.simpleName
+                                    } finally { busy = false }
+                                }
+                            },
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                        ) { Text("SAVE LABEL") }
+                        OutlinedButton(
+                            onClick = { editingId = null },
+                            enabled = !busy,
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                        ) { Text("CANCEL") }
+                    }
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                editingId = marker.id
+                                editText = marker.label
+                            },
+                            enabled = !busy,
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                        ) { Text("EDIT") }
+                        OutlinedButton(
+                            onClick = {
+                                busy = true
+                                scope.launch {
+                                    try {
+                                        store.delete(sessionId, marker.id)
+                                        onMarkersChange(store.list(sessionId))
+                                        notice = "Marker removed. Telemetry is unchanged."
+                                    } catch (cancel: CancellationException) { throw cancel }
+                                    catch (error: Exception) {
+                                        notice = "Could not delete marker: " +
+                                            error.javaClass.simpleName
+                                    } finally { busy = false }
+                                }
+                            },
+                            enabled = !busy,
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                        ) { Text("DELETE") }
+                    }
                 }
-                OutlinedButton(
-                    onClick = {
-                        busy = true
-                        scope.launch {
-                            try {
-                                store.delete(sessionId, marker.id)
-                                onMarkersChange(store.list(sessionId))
-                                notice = "Marker removed. Telemetry is unchanged."
-                            } catch (cancel: CancellationException) { throw cancel }
-                            catch (error: Exception) {
-                                notice = "Could not delete marker: " +
-                                    error.javaClass.simpleName
-                            } finally { busy = false }
-                        }
-                    },
-                    enabled = !busy,
-                    modifier = Modifier.heightIn(min = 48.dp)
-                ) { Text("DELETE", fontSize = 11.sp) }
             }
         }
         if (markers.size > 40) Text("Showing the first 40 annotations.",
